@@ -1,0 +1,909 @@
+#!/usr/bin/env bash
+#
+# grade/clean: SciVis-2023 support code (modified per project)
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+# This script runs tests for cleanliness points
+
+set -o errexit
+set -o nounset
+set -o pipefail
+# set -o xtrace # echos all commands
+shopt -s expand_aliases
+JUNK=""
+function junk { JUNK="$JUNK $@"; }
+function cleanup { rm -rf $JUNK; }
+trap cleanup err exit int term
+
+# disable any coloring that would thwart string comparison
+unset GREP_OPTIONS
+
+all="twsp warn risd impf mchk" # symb removed from pcpb because of bug
+if [ ! -z "" ]; then
+    all+=" hlgd"
+fi
+# putting hard-coded enum check at end, because it is also
+# a flag for non-deterministic behavior, which can be caused
+# by memory bugs
+all+=" cnum"
+
+# HEY copy-and-paste from ./go
+if [[ $# -eq 0 ]]; then
+    torun="$all"
+elif [[ "$1" == "all" ]]; then
+    torun="$all"
+elif [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    >&2 echo "Usage: "
+    >&2 echo "  $0 [all]"
+    >&2 echo "  $0 <test1> [<test2> [...]]"
+    >&2 echo "With no command-line options, or giving \"all\" as the command-line option,"
+    >&2 echo "all tests are run. Or, the tests to run can be given by name."
+    >&2 echo "Project 1 cleanliness tests are:"
+    >&2 echo "$all"
+    exit 0
+else
+    torun="$*"
+    for T in $torun; do
+        if [[ $T == "tkec" ]]; then
+            # we handle this one separately
+            continue
+        fi
+        if [[ ! " $all " == *\ $T\ * ]]; then
+            >&2 echo "$0: test \"$T\" not recognized. Project 1 cleanliness tests are:"
+            >&2 echo "$all"
+            exit 1
+        fi
+    done
+    # else all listed tests are legit
+fi
+
+# HEY this too shared with ./go and ./grade
+function dirnote {
+    echo "$0: NOTE: changing into $DIR to run commands for grading"
+}
+D0=$(pwd)
+# https://stackoverflow.com/questions/59895/getting-the-source-directory-of-a-bash-script-from-within
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+if [[ "$DIR" != "$D0" ]]; then
+    # will dirnote later
+    cd $DIR
+fi
+if [[ "grade" != $(basename $DIR) ]]; then
+    >&2 echo "$0: what? should be running in a \"grade\" subdirectory"
+    >&2 echo "$0: \"grade\" != $(basename $DIR) == basename(pwd)"
+    exit 1
+fi
+
+# HEY copied from go
+# $SCIVIS used in some grading T- scripts, and in grade/sum
+if [[ -z ${SCIVIS+x} ]]; then
+    >&2 echo \
+"
+$0: Environment variable \"SCIVIS\" not set. Grading scripts need SCIVIS
+to be set to your checkout of the scivis-2023 repository."
+    exit 1
+fi
+
+# goal is to create this file
+if [[ "$torun" == "$all" ]]; then
+    rm -f clean-sum.txt
+fi
+
+# unset things that could change behavior
+# HEY shared with ./go
+unset SCIVIS_GRADE_NOOP
+unset SCIVIS_VERBOSE
+unset SCIVIS_ROUND
+unset SCIVIS_TIMEOUT
+unset SCIVIS_TIME_VERBOSE
+unset SCIVIS_TIME_MEDIAN
+unset SCIVIS_TIME_EXTRA
+unset SCIVIS_TIME_ERROR
+# different than ./go: we turn on signal handling to better handle
+# crashes even though we aren't computing points
+export SCIVIS_HANDLE_SIGNALS=1
+
+# files with student's code
+files=($( echo "plt.h util.c poly.c convo.c pplot.c" | xargs))
+
+function mlclang {
+    local wut=$1 # load or unload
+    if hostname --fqdn > /dev/null 2>&1 ; then
+        # if hostname --fqdn works here ok
+        hname=$(hostname --fqdn)
+        if [[ "$hname" == *.cs.uchicago.edu && $(uname) == Linux ]]; then
+            cmd="module $wut clang-llvm" # defaults to latest version
+            >&2 echo "$0:$me: running: $cmd"
+            eval $cmd
+        fi
+    fi
+}
+
+#####################
+
+# for re-making, with different options, and logging any failures
+remakeOut=""  # effectively, return string from remake
+function remake {
+    local me=$1; local opts=$2; local desc=$3; local logtokeep=$4
+    local log
+    if [[ -z "$logtokeep" ]]; then
+        # caller doesn't care to keep make log around
+        log=".make.log"
+    else
+        log="$logtokeep"
+    fi
+    # clumsy way of dealing with possibilities of $opts being empty,
+    # or containing spaces
+    if [ -z "$opts" ]; then
+        gomake=make
+    else
+        gomake="make $opts"
+    fi
+    remakeOut=""
+    rm -f ../make.failed
+    >&2 echo -n "$0:$me: re-making ($gomake) $desc ... "
+    (cd ..; make clean > /dev/null 2>&1 &&
+        touch make.failed &&
+        (eval $gomake 2>&1 |
+        # this is mac-specific, but harmless to always use
+        grep -v "was built for newer OSX version") > $log &&
+        rm make.failed) ||:
+    if [[ -f ../make.failed ]]; then
+        >&2 echo "FAILED."
+        local msg="0 = $me points: make $opts failed"
+        >&2 echo -e "\n$msg\n"
+        remakeOut+="$msg:"$'\n'
+        remakeOut+=$(cat ../$log | sed -e s,$SCIVIS,\$SCIVIS, )
+        # rm log if make fails (regardless of $logtokeep)
+        rm -f ../make.failed ../$log
+        return 0
+    fi
+    # make'd (made?) ok
+    >&2 echo "done."
+    if [[ -z "$logtokeep" ]]; then
+        rm -f ../$log
+    fi
+    return 1
+}
+
+######################################################################
+# twsp == Trailing WhiteSPace
+function twsp {
+    local me="twsp"
+    local ret=$'\n'
+    local buff=.$me.txt
+    rm -f $buff; touch $buff; junk $buff
+    for ff in "${files[@]}"; do
+        # this grep is what looks for trailing whitepace
+        ( cd ..; grep -En '[[:space:]]+$' $ff /dev/null ) >> $buff ||:
+    done
+    local lines=$(cat $buff | wc -l | xargs)
+    local msg
+    if [[ $lines != "0" ]]; then
+        local pnts=$[100-$lines]||: # POLICY: 1pt/line with trailing whitespace
+        if [[ $pnts -lt 0 ]]; then pnts=0; fi
+        local s; if [[ $lines == "1" ]]; then s=" has"; else s="s have"; fi
+        msg="$pnts = $me points: $lines line$s trailing whitespace"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows:"$'\n'
+        ret+=$(sed -e 's/^/   /' < $buff | cat -tve)$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="Figure out how to highlight trailing whitespace in your editor so that you"$'\n'
+        ret+="can remove it as soon as it is accidentally created. Trailing whitespace is"$'\n'
+        ret+="bad because changing it creates cryptic file differences when using any"$'\n'
+        ret+="version control system, which wastes your colleagues' time and good will."$'\n'
+        echo "$ret"
+        return
+    fi
+    # else all ok
+    msg="100 = $me points: no lines have trailing whitespace; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    return
+}
+
+######################################################################
+# warn == compilation WARNings
+function warn {
+    local me="warn"
+    local ret=$'\n'
+    if remake $me "" "with warnings enabled" make.log1; then
+        echo "$remakeOut"
+        return
+    fi
+    junk ../make.log1
+    # this processing is for some reason needed to make the log files
+    # textually comparable
+    cat ../make.log1 | sed -e 's/ -g  / -g /g' > ../make.logtmp
+    mv ../make.logtmp ../make.log1
+    local linesGot=$(cat ../make.log1 | wc -l | xargs)
+    >&2 echo -n "$0:$me: re-making with CFLAGS=-w (to turn off warnings) ... "
+    # assuming that this make can't fail if make above didn't fail
+    (cd ..; make clean > /dev/null 2>&1 &&
+         # the -w flag turns off warnings, but then we have to
+         # filter out the "-w" so that diff shows only warnings
+        (make CFLAGS=-w 2>&1) | sed -e 's/-w //' > make.log0)
+    >&2 echo "done."
+    junk ../make.log0
+    local linesWant=$(cat ../make.log0 | wc -l | xargs)
+    local msg
+    if [[ $linesGot != $linesWant ]]; then
+        local wnum=$(diff ../make.log{0,1} | grep " warning:" | wc -l | xargs)
+        # POLICY 5 points per regular warning
+        local pnts=$(echo "100 - 5*$wnum" | bc)
+        if [[ $pnts -lt 0 ]]; then pnts=0; fi
+        msg="$pnts = $me points: have $wnum compile warnings"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows:"$'\n'
+        # use diff to show warnings, but remove the >s specific to diff
+        ret+=$(diff ../make.log{0,1} | grep "^>" | sed -e 's/^>/   /') ||:
+        ret+=$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="Compiler warnings should be heeded because they represent a tremendous amount"$'\n'
+        ret+="of collective and accumulated wisdom about elements of code that either are"$'\n'
+        ret+="bugs, or patterns of code that, over time and across various situations,"$'\n'
+        ret+="tend to become bugs."$'\n'
+        ret+=""$'\n'
+        echo "$ret"
+        return
+    fi
+    # else no compilation warnings
+    msg="100 = $me points: no compile warnings; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    return
+}
+
+######################################################################
+# risd == Real IS Double
+function TrisdRun {
+    local howmade=$1
+    local type=$2
+    # hey largely copied from cnum tests
+    setTFuncs
+    function plotr {
+        # this is how verbose printed output is capped
+        # (needed 20 not 15 lines for p3 rendr m4ai)
+        (../plotr "$@" 2>&1 ||: ) | head -20
+    }
+    >&2 echo -n "$0:$me: running risd tests after $howmade ... "
+    outputs=""
+    set +o errexit
+    source T-risd
+    set -o errexit
+    >&2 echo "done"
+    for ff in $outputs; do
+        if [ -f $ff ]; then
+            mv $ff $me-$type-$ff
+        else
+            echo "file $ff not generated as expected" > $me-$type-$ff
+        fi
+    done
+    unsetTFuncs; unset -f plotr
+}
+function risd {
+    local me="risd"
+    local ret=$'\n'
+    if [ ! -z ${SCIVIS_UNREAL+x} ]; then
+        # Hack to skip this test, for older code that didn't use "real".
+        # This will *not* be set when grading your code.
+        msg="100 = $me points: SCIVIS_UNREAL set so skipping this test."
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg"
+        echo "$ret"
+        return
+    fi
+    if [[ -s T-risd ]]; then
+        if remake $me "" "" ""; then
+            echo "$remakeOut"
+            return
+        fi
+        TrisdRun "regular make" "float"
+    fi
+    if remake $me "CFLAGS=-DSCIVIS_REAL_IS_DOUBLE=1" "to make \"real\" be \"double\"" ""; then
+        echo "$remakeOut"
+        return
+    fi
+    # else make CFLAGS=-DSCIVIS_REAL_IS_DOUBLE=1 finished ok;
+    # run the risd test, if it exists, to make a double-version of output
+    if [[ -s T-risd ]]; then
+        TrisdRun "making real be double" "double"
+    fi
+    # see if "float" or "double" appear in student's code
+    local buff=.$me.txt
+    rm -f $buff; touch $buff; junk $buff
+    for ff in "${files[@]}"; do
+        ../.strip.sh -in ../$ff | grep float >> $buff ||:
+        ../.strip.sh -in ../$ff | grep double >> $buff ||:
+    done
+    local msg
+    if [[ -s $buff ]]; then
+        msg="0 = $me points: code explicitly mentions \"float\" or \"double\""
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows:"$'\n'
+        ret+=$(sed -e 's/^/   /' < $buff)$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="Instead, write code for floating-point values in terms of type \"real\"."$'\n'
+        ret+="If you must refer to float or double in comments, use other spellings like"$'\n'
+        ret+="\"Float\" or \"Double\". Unfortunately, safely excluding comments from this"$'\n'
+        ret+="search, while keeping the source code line numbers, is surprisingly difficult."$'\n'
+        ret+="We require the use of \"real\" in this class to keep all of us equally honest"$'\n'
+        ret+="about the floating point numerical accuracy of the computations we write in C,"$'\n'
+        ret+="and to facilitate exploring the speed/accuracy tradeoff between single (float)"$'\n'
+        ret+="and double (double) precision."$'\n'
+        echo "$ret"
+        return
+    fi
+    # else all ok
+    msg="100 = $me points: all code works without mentioning float or double; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    return
+}
+
+######################################################################
+# impf == no IMPlicit conversions of Floating point precision
+function impf {
+    local me="impf"
+    mlclang load
+    # HEY maybe do more to error check on clang --version
+    if remake $me "CC=clang CFLAGS=\"-Wno-unused-variable -Wno-unused-function\"" "with most warnings enabled" make.log0; then
+        echo "$remakeOut"
+        return
+    fi
+    junk ../make.log0
+    local linesWant=$(cat ../make.log0 | wc -l | xargs)
+    # at least with clang v11 had to add -Wno-implicit-int-float-conversion to turn off
+    # warnings about how a float can't losslessly store all the values from a uint
+    if remake $me "CC=clang CFLAGS=\"-Wdouble-promotion -Wimplicit-float-conversion -Wno-implicit-int-float-conversion -DSCIVIS_PRINTF_NOOP -Wno-unused-variable -Wno-unused-function -Wno-gnu-zero-variadic-macro-arguments\"" "to flag implicit conversions in/out of double" make.log1; then
+        echo "$remakeOut"
+        return
+    fi
+    mlclang unload
+    junk ../make.log1
+    # make log1 more comparable to log0
+    cat ../make.log1 | sed -e 's/ -Wdouble-promotion -Wimplicit-float-conversion -DSCIVIS_PRINTF_NOOP//g' > ../make.logtmp
+    mv ../make.logtmp ../make.log1
+    local linesGot=$(cat ../make.log1 | wc -l | xargs)
+    local msg
+    local ret=$'\n'
+    if [[ $linesGot != $linesWant ]]; then
+        local wnum=$(diff ../make.log{0,1} | grep " warning:" | wc -l | xargs)
+        # POLICY 5 points per impf warning
+        local pnts=$(echo "100 - 5*$wnum" | bc)
+        if [[ $pnts -lt 0 ]]; then pnts=0; fi
+        msg="$pnts = $me points: $wnum warning about implicit float conversion"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows:"$'\n'
+        # use diff to show warnings, but remove the >s specific to diff
+        ret+=$(diff ../make.log{0,1} | grep "^>" | sed -e 's/^>/   /') ||:
+        ret+=$'\n'
+        ret+=$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="We require the use of \"real\" in this class to keep all of us equally honest"$'\n'
+        ret+="about the floating point numerical accuracy of the computations we write in C."$'\n'
+        ret+="When real==float, this is undermined by (possibly accidental) conversion"$'\n'
+        ret+="of floating point precision from single to double. Some of these warnings are"$'\n'
+        ret+="enabled by -Wimplicit-float-conversion, available in recent (llvm) clang."$'\n'
+        ret+="If warnings above say: unknown warning option '-Wimplicit-float-conversion'"$'\n'
+        ret+="then your clang is not recent enough, sorry. Otherwise, the warnings above are"$'\n'
+        ret+="about implicit (i.e., without writing \"float\" or \"double\" in your code)"$'\n'
+        ret+="conversions between different precisions. Review the implicit type conversion"$'\n'
+        ret+="rules at https://en.cppreference.com/w/c/language/conversion and how, as noted"$'\n'
+        ret+="at https://en.cppreference.com/w/c/language/floating_constant , unsuffixed"$'\n'
+        ret+="(i.e. typical) floating point constants have type \"double\". The type-generic"$'\n'
+        ret+="math macros in tgmath.h facilitate our control of floating-point precision,"$'\n'
+        ret+="and you can note at https://en.cppreference.com/w/c/numeric/tgmath how passing"$'\n'
+        ret+="an integer argument to math functions can also generate a double. Try fixing"$'\n'
+        ret+="these warnings with judicious casts to \"real\", e.g., one-half is"$'\n'
+        ret+="\"(real)0.5\" or \"(real)1/2\". Finally, warnings may also originate from"$'\n'
+        ret+="using printf, because of the type promotion that always happens with variable-"$'\n'
+        ret+="argument functions. You can avoid this by using the stand-in replacement"$'\n'
+        ret+="pltPrintf (which you should be using anyway because it interprets %g to"$'\n'
+        ret+="print a real with adequate precision)."$'\n'
+        echo "$ret"
+        return
+    fi
+    # else no compilation warnings
+    msg="100 = $me points: no implicit float conversion warnings; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    return
+}
+
+######################################################################
+# symb == well-behaved external SYMBols
+
+# mynm: wrapper around "nm"
+function mynm {
+    local sed1
+    local sed2
+    if [[ $(uname -s) == "Darwin" ]]; then
+        sed1="sed -e 's/ _/ /'"    # remove leading _ on symbol names
+        sed2="cat"                 # no-op
+    else
+        sed1="sed -e 's/:/: /'"    # insert space after object filename
+        sed2="sed -e 's/ R / S /'" # mimic simpler vocabulary of osx nm
+    fi
+    nm -go $1 |                    # only global symbols, and include filename
+    grep -v " U " |                # ignore undefined symbols
+    cut -d: -f 2- |                # drop library.a name; keep object filename
+    eval "$sed1" | eval "$sed2" |  # see above
+    cut -d' ' -f 1,3,4 |           # drop numerical address
+    grep : |                       # drop lines not describing a symbol
+    env LC_ALL=C sort              # consistent sorting across platforms
+    # https://stackoverflow.com/questions/28881/why-doesnt-sort-sort-the-same-on-every-machine
+}
+
+function symb {
+    # putting static variables inside functions is also a bad idea for this
+    # class, but there isn't a reliable way to detect that with nm; such
+    # variables would be reported by nm (on linux) as in either the "b"
+    # segment (BSS, if initialized to zero) or the "d" segment (data, if
+    # initialized to something non-zero).
+    local me="symb"
+    local ret=$'\n'
+    if remake $me "" "" ""; then
+        echo "$remakeOut"
+        return
+    fi
+    mynm ../libplt.a | grep -v pltVerbose > yousym.txt
+    junk yousym.txt
+    mynm `../librplt` | sed 's/ ref_/ /' > refsym.txt
+    junk refsym.txt
+    diff {ref,you}sym.txt | grep "^>" | sed -e 's/^> //' > diffsym.txt ||:
+    junk diffsym.txt
+    local numsym=$(cat diffsym.txt | wc -l | xargs)
+    local msg
+    if [[ $numsym == "0" ]]; then
+        msg="100 = $me points: no new external symbols (so nothing more to check)"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg"
+        echo "$ret"
+        return
+    fi
+    # else do have $numsym new external symbols
+    local why=""
+    local pnts
+    #    0         1         2         3         4         5         6         7         8
+    why+="The external symbols of a library (shown with \"nm -g libplt.a\") are the"$'\n'
+    why+="ones that the linker might use when you link with the library (the"$'\n'
+    why+="\"-lplt\" part of compilation). In general, it is important to be careful"$'\n'
+    why+="about the presence and naming of external symbols, since it determines how"$'\n'
+    why+="well your library plays with other libraries a user might be relying on."$'\n'
+    if true; then
+        # POLICY: 20 points off for each new external symbol
+        pnts=$(echo "100 - 20*$numsym" | bc)
+        if [[ $pnts -lt 0 ]]; then pnts=0; fi
+        local s; if [[ $numsym == "1" ]]; then s=""; else s="s"; fi
+        msg="$pnts = $me points: libplt.a has $numsym new external symbol$s"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows:"$'\n'
+        ret+=$(sed -e 's/^/   /' < diffsym.txt)$'\n'
+        ret+=$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="For this project, no new external symbols should be in library libplt.a."$'\n'
+        ret+="If you are allowed to add new functions or variables outside functions, they"$'\n'
+        ret+="must be declared as \"static\"."$'\n'
+        ret+="$why"$'\n'
+        echo "$ret"
+        return
+    else
+        local numbad=$(cat diffsym.txt | cut -d' ' -f 3 | grep -v "^plt" | wc -l | xargs) ||:
+        if [[ $numbad == "0" ]]; then
+            # the new symbols have the right prefix
+            msg="100 = $me points: all $numsym new symbols have the plt prefix; great!"
+            >&2 echo -e "\n$msg\n"
+            ret+="$msg"
+            echo "$ret"
+            return
+        fi
+        # else numbad > 0
+        # (same) POLICY: 20 points off for each new external symbol
+        pnts=$(echo "100 - 20*$numbad" | bc)
+        if [[ $pnts -lt 0 ]]; then pnts=0; fi
+        local s; if [[ $numbad == "1" ]]; then s=""; else s="s"; fi
+        msg="$pnts = $me points: libplt.a has $numbad new external symbol$s missing \"plt\" prefix"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg,"$'\n'"within the following:"$'\n'
+        ret+=$(sed -e 's/^/   /' < diffsym.txt)$'\n'
+        ret+=$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="For this project, any new external symbols in library libplt.a must be"$'\n'
+        ret+="prefixed with \"plt\". Functions (and variables outside functions) that"$'\n'
+        ret+="intended to be used only inside their source file should be declared as"$'\n'
+        ret+="\"static\"."$'\n'
+        ret+="$why"$'\n'
+        echo "$ret"
+        return
+    fi
+}
+
+######################################################################
+# cnum == no hard-coded C eNUM values
+# (despite where this appears in this file, these test are done last)
+
+# setTFuncs and unsetTFuncs should match what they set/unset
+function setTFuncs {
+    # the smaller set of commands to be used in T-core
+    function starting { :; }
+    function section { :; }
+    function finished { :; }
+    function input { junk $@; }
+    function output { outputs+=" $1"; }
+    function timeout {
+        if [ "0" != $1 ]; then
+            export SCIVIS_TIMEOUT=$1
+        else
+            unset SCIVIS_TIMEOUT
+        fi
+    }
+}
+
+function unsetTFuncs {
+    unset -f starting
+    unset -f section
+    unset -f finished
+    unset -f input
+    unset -f output
+}
+
+function cnum {
+    local me="cnum"
+    local ret=$'\n'
+    if remake $me "" "" ""; then
+        echo "$remakeOut"
+        return
+    fi
+
+    setTFuncs
+    function plotr {
+        # like in ./go: cap printed output to this many lines (exceeding this
+        # likely means too many verbose printfs) but the way this is used is
+        # different: here we are about doing diffs on output files, and
+        # printed output when the printed output is itself the answer
+        # (e.g. plotr lerp).  The T-core tests run plotr to either save
+        # a -o output file, or they > redirect output to a file.  But
+        # for this we are not specifically penalizing verbose output.
+        (../plotr "$@" 2>&1 ||: ) | head -20
+    }
+
+    >&2 echo -n "$0:$me: running core tests (after normal compilation) ... "
+    outputs=""
+    set +o errexit
+    source T-core
+    set -o errexit
+    for ff in $outputs; do
+        if [ -f $ff ]; then
+            mv $ff $me-A-$ff
+        else
+            touch $me-A-$ff
+        fi
+    done
+    >&2 echo "done"
+
+    # randomize enum values
+    cp ../plt.h{,.save}; cp ../Makefile{,.save}
+    local rnd=$((100+RANDOM/4))
+    sed -e "s/Unknown=0,/Unknown=$rnd,/" < ../plt.h.save > ../plt.h
+    grep -v integrity.sh < ../Makefile.save > ../Makefile
+    if remake $me "" "with enum values modified" ""; then
+        echo "$remakeOut"
+        mv ../plt.h{.save,}; ../mv Makefile{.save,}
+        unsetTFuncs; unset -f plotr
+        return
+    fi
+    mv ../plt.h{.save,}; mv ../Makefile{.save,}
+
+    >&2 echo -n "$0:$me: re-running core tests (with enum-modified code) ... "
+    function output { :; } # now a noop; already have $outputs
+    set +o errexit
+    source T-core
+    set -o errexit
+    for ff in $outputs; do
+        if [ -f $ff ]; then
+            mv $ff $me-B-$ff
+        else
+            touch $me-B-$ff
+        fi
+    done
+    >&2 echo "done"
+
+    local buff=.$me.txt
+    rm -f $buff; touch $buff; junk $buff
+    for ff in $outputs; do
+        set +o errexit
+        cmp $me-A-$ff $me-B-$ff > /dev/null 2>&1
+        cmpret=$?
+        set -o errexit
+        if [[ $cmpret != 0 ]]; then
+            # there was a difference
+            # https://unix.stackexchange.com/questions/275516/is-there-a-convenient-way-to-classify-files-as-binary-or-text
+            if [[ $(cat $me-A-$ff | file -b --mime-type -) == "text/plain" ]]; then
+                (diff -u $me-A-$ff $me-B-$ff ||: ) >> $buff
+            else
+                (diff -q $me-A-$ff $me-B-$ff ||: ) >> $buff
+            fi
+        else
+            # no difference
+            junk $me-A-$ff $me-B-$ff
+        fi
+    done
+
+
+    if [[ -s $buff ]]; then
+        msg="0 = $me points: code seems to involve hard-coded enum values"
+        >&2 echo -e "\n$msg\n"
+        #    0         1         2         3         4         5         6         7         8
+        ret+="$msg, OR it shows"$'\n'
+        ret+="some non-determinism (same inputs to repeated execution of code give different"$'\n'
+        ret+="outputs), possibly due to other bugs. First, fix problems (if any)"$'\n'
+        ret+="noted above from the \"mchk\""
+        if [ -z "" ]; then
+            ret+=" test."$'\n'
+        else
+            ret+=" and \"hlgd\" tests."$'\n'
+        fi
+        ret+="The grade/T-core tests generate many output files, and below are differences"$'\n'
+        ret+="before (prefix \"$me-A-\") and after (prefix \"$me-B-\") enum re-valuing"$'\n'
+        ret+="(showing here first 50 lines):"$'\n'
+        ret+=$(head -50 $buff | sed -e 's/^/   /')$'\n'
+        ret+=$'\n'
+        ret+="Using hard-coded enum values destroys code legibility, and almost guarantees"$'\n'
+        ret+="that your code will break if anyone decides to change the enum values later"$'\n'
+        ret+="(i.e. to adapt the code for a new setting or application)."$'\n'
+        echo "$ret"
+        unsetTFuncs; unset -f plotr
+        return
+    fi
+    # else all ok
+    msg="100 = $me points: code does not seem to involve hard-coded enum values; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    unsetTFuncs; unset -f plotr
+    return
+}
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# valgrind wrapper
+
+function vgWrap {
+    local me=$1
+    local vgTool=$2
+    local ret=$'\n'
+    if ! command -v valgrind >/dev/null 2>&1; then
+        msg="100 = $me points but maybe not: \"valgrind\" not available!"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg"$'\n'
+        ret+="Need program \"valgrind\" to run tests under its $vgTool tool."$'\n'
+        ret+="These points aren't meaningful until you run on a machine (like"$'\n'
+        ret+="linux.cs.uchicago.edu) where valgrind is available and reliable."$'\n'
+        echo "$ret"
+        return
+    fi
+
+    # else we have valgrind; run tests
+    if remake $me "" "" ""; then
+        echo "$remakeOut"
+        return
+    fi
+
+    setTFuncs
+    # over-ride "input" function: instead of just junk'ing input,
+    # we emulate what is done by grade/sum: record what is input
+    # for current test, and preserve inputs of failing tests.
+    local mcInputs=""
+    local mcKeep=""
+    local mcJunk=""
+    # HEY should make sure inputs are only files in current directory;
+    # method (below) of keeping inputs for failed tests depends on it
+    function input { mcInputs="$@"; }
+
+    local vgTnum=0 # $vgTool test num
+    local vgEnum=0 # $vgTool error num
+    local buff=.$me.txt
+    rm -f $buff; touch $buff; junk $buff
+    local btmp=.$me.tmp.txt
+    rm -f $btmp; touch $btmp; junk $btmp
+    function plotr {
+        # valgrind prints to stderr, which we save in a log file.
+        # Any expected output from plotr to stdout will be saved
+        # via redirection within the T-core script. HOWEVER, this
+        # will not capture the "*** stack smashing detected ***" or
+        # "plotr terminated" caused by the stack buffer overflow
+        # detection (because of the combination of how they are printed,
+        # the fact that we have to let out stdout to be captured
+        # by the calling T-core script).
+        if [[ "$vgTool" == "memcheck" ]]; then
+            local vgArgs="--leak-check=full"
+        else
+            # vgTool == helgrind
+            local vgArgs=""
+        fi
+        valgrind --tool=$vgTool $vgArgs ../plotr "$@" 2> $btmp ||:
+        # EN == # of errors in this test
+        # ==4801== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+        #     1     2       3     4 --------------v
+        local EN=$(tail -n 1 $btmp | cut -d' ' -f 4)
+        # >&2 echo "$btmp ======================"
+        # >&2 cat $btmp
+        if [[ "$EN" == 0 ]]; then
+            local mcprog="."
+            mcJunk="$mcJunk $mcInputs"
+        else
+            # handle the error
+            local mcprog="!"
+            mcKeep=$(echo $mcKeep $mcInputs | xargs -n 1 | env LC_ALL=C sort | uniq)
+            echo "plotr $@" >> $buff
+            ((vgEnum++))||:
+        fi
+        >&2 echo -n $mcprog  # progress indication
+        ((vgTnum++))||:
+    }
+
+    >&2 echo -n "$0:$me: running core tests under valgrind $vgTool "
+    outputs=""
+    set +o errexit
+    source T-core  # calls to plotr therein become the function above
+    set -o errexit
+    >&2 echo " done"
+    for ff in $outputs; do
+        rm -f $ff
+    done
+
+    if [[ "$vgEnum" -ne 0 ]]; then
+        # 100*10*vgEnum/vgTnum goes from 0 to 1000 as #errors from 0 to all
+        # we cap at 100, and then 100 minus that are mchk points.
+        # So (POLICY): 1/10 of tests having a valgrind error ==> 0 mchk points
+        local mctmp=$[1000*vgEnum/vgTnum]
+        if [[ "$mctmp" -gt 100 ]]; then
+            mctmp=100
+        fi
+        mctmp=$[100-mctmp]
+        msg="$mctmp = $me points: had $vgEnum (of $vgTnum) tests w/ $vgTool errors"
+        >&2 echo -e "\n$msg\n"
+        ret+="$msg, as follows."$'\n'
+        #    0         1         2         3         4         5         6         7         8
+        ret+="Errors seen from running the following commands (from grade/T-core)"$'\n'
+        ret+="under valgrind $vgTool:"$'\n'
+        ret+=$(cat $buff | sed -e 's/^/   /')$'\n'
+        ret+="Input files to these commands will persist if you re-run \"grade/clean $me\";"$'\n'
+        if [ ! -z "$mcKeep" ]; then
+            mkdir .$me.keep
+            cp $mcKeep .$me.keep
+            rm -f $mcJunk
+            mv .$me.keep/* .
+            rmdir .$me.keep
+        else
+            rm -f $mcJunk
+        fi
+        ret+="Re-run individual commands with \"valgrind --tool=$vgTool ./plotr ...\"."$'\n'
+        ret+="to see what the specific issues are. Remember that any input files are in"$'\n'
+        ret+="the grade subdirectory, so their filenames should start with \"grade/\"."$'\n'
+        ret+=""$'\n'
+
+        if [[ "$vgTool" == "memcheck" ]]; then
+            #    0         1         2         3         4         5         6         7         8
+            ret+="These errors indicate some sloppiness in how your program is using memory."$'\n'
+            ret+="It could be as simple as using uninitialized values (which can lead to non-"$'\n'
+            ret+="deterministic behavior), or as bad as errors that cause crashes (segfaults"$'\n'
+            ret+="bus errors, etc), either now or in other possible future circumstances."$'\n'
+            ret+="Errors also include memory leaks; these don't themselves cause crashes, but"$'\n'
+            ret+="they are unsustainable if your code is being called by another application."$'\n'
+        else
+            ret+="These errors indicate some sloppiness in how your program is using the"$'\n'
+            ret+="pthreads library for multi-threaded computation. The errors detected by"$'\n'
+            ret+="helgrind (data races, potential deadlocks, and incorrect usage of the"$'\n'
+            ret+="pthread API) all contribute to wrong or non-deterministic program output."$'\n'
+        fi
+        echo "$ret"
+        unsetTFuncs; unset -f plotr
+        return
+    fi
+
+    # else all well
+    msg="100 = $me points: code runs cleanly under valgrind/$vgTool; great!"
+    >&2 echo -e "\n$msg\n"
+    ret+="$msg"
+    echo "$ret"
+    unsetTFuncs; unset -f plotr
+    return
+}
+
+######################################################################
+# mchk == valgrind MemCHecK
+function mchk {
+    vgWrap "mchk" "memcheck"
+    return
+}
+
+######################################################################
+# hlgd == valgrind HeLGrinD
+function hlgd {
+    vgWrap "hlgd" "helgrind"
+    return
+}
+
+######################################################################
+# tkec == really for Thoughtfulness: Kernel Eval,apply Count
+function tkec {
+    # hey largely copied from cnum test above
+    local me=tkec
+    if remake $me "CFLAGS=-DKEC" "with -DKEC" ""; then
+        echo "$remakeOut"
+        return
+    fi
+    setTFuncs
+    function plotr {
+        (../plotr "$@" 2>&1 ||: ) | grep "^KEC:"
+    }
+    >&2 echo -n "$0:$me: running core tests (after compiling with CFLAGS=-DKEC) ... "
+    outputs=""
+    set +o errexit
+    source T-core
+    set -o errexit
+    >&2 echo "done"
+    for ff in $outputs; do
+        junk $ff
+    done
+    unsetTFuncs; unset -f plotr
+    return
+}
+
+######################################################################
+
+if [[ "$DIR" != "$D0" ]]; then
+    dirnote
+fi
+
+if [[ "$torun" != "tkec" ]]; then
+    clOut=clean-sum.txt
+else
+    clOut=kec-sum.txt
+fi
+rm -f $clOut
+touch $clOut
+
+msg="All cleanliness tests are out of 100 points."
+if [[ "$torun" != "tkec" ]]; then
+    echo $'\n'"$msg"
+    echo "$msg" >> $clOut
+fi
+for T in $torun; do
+    echo "########## $T tests:"
+    $T >> $clOut
+done
+
+# HERE is where we exploit the (kind of odd) constraint that all
+# the clean names are     f    o    u    r  (4) letters long
+got=$(grep -E "[0-9]+ = [a-z][a-z][a-z][a-z] points:" $clOut | # look for points lines
+    cut -d' ' -f 1 | # isolate that point number
+    env LC_ALL=C sort -n | # sort in ascending order
+    head -n 1) # look at the smallest value (POLICY)
+
+# if ran all tests, sum results into final report
+if [[ "$torun" == "$all" ]]; then
+    msg="$got/100 = cleanliness points (minimum across tests)"
+    echo "$msg"
+    echo "$msg
+
+$(cat $clOut)" > $clOut
+fi
+
+if [[ "$torun" != "tkec" ]]; then
+    if [[ $got != "100" ]]; then
+        echo "See grade/$clOut for details on issues to fix."
+    fi
+fi
+
+# maybe test for using actual tab characters? c.f. https://youtu.be/SsoOG6ZeyUI

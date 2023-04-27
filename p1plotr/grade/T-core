@@ -1,0 +1,75 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+# The only grading commands that should be used here
+# (besides the per-project command) are:
+# starting section finished input output timeout
+
+if [[ "$0" == T-core ]]; then source .T-noop; fi
+
+starting
+
+timeout 4
+
+function out {
+    OUT=$1
+    output $1
+}
+
+section "basic convolutions (mainly for KEC)"
+../rplotr psamp -mm -5 5  -n 100 -p 10 -10 2 1 -o core-convo-poly.txt
+input core-convo-poly.txt
+for K in box tent bspln2 ctmr luna celie; do
+    for P in 3.27 4.949 8; do
+        plotr ceval -i core-convo-poly.txt -x $P -k $K
+    done
+done
+
+section "variety of basic tests"
+MMeasy=( "-2 3"  "3 -2")
+MMDesc=("lo2hi" "hi2lo") # describing how interval was defined
+for CENT in cell node; do
+    for J in 0 1; do
+        desc=${MMDesc[$J]}
+        MM=${MMeasy[$J]}
+        NN=13
+        prfx=core-$CENT-$J
+        FF=$prfx-$desc.txt
+        PP="-0.8 0.01 0.9"
+        ../rplotr psamp -p $PP -mm $MM -n $NN -c $CENT -o $FF
+        input $FF
+        out $prfx-itowA.txt; plotr itow $FF 10 > $OUT
+        out $prfx-itowB.txt; plotr itow $FF 10000 > $OUT
+        out $prfx-wtoiA.txt; plotr wtoi $FF 1     > $OUT
+        out $prfx-wtoiB.txt; plotr wtoi $FF -100  > $OUT
+        out $prfx-psamp.txt; plotr psamp -p 0 1 -mm $MM -n $NN -c $CENT -o $OUT
+        out $prfx-cevalA.txt; plotr ceval -i $FF -k tent   -x 0 -d 0 > $OUT
+        out $prfx-cevalB.txt; plotr ceval -i $FF -k bspln2 -x 0 -d 0 > $OUT
+        out $prfx-cevalC.txt; plotr ceval -i $FF -k celie  -x 0 -d 2 > $OUT
+        out $prfx-plotA.png; plotr plot -i $FF        -k tent -d 0 -s 400 400 -xmm -4 4 -ymm -3 7 -tha 0 -dd 0  -hz  0 -o $OUT
+        out $prfx-plotB.png; plotr plot -i $FF -p $PP -k ctmr -d 0 -s 400 400 -xmm -4 4 -ymm -3 7 -tha 4 -dd 10 -hz 19 -o $OUT
+        out $prfx-plotC.png; plotr plot -i $FF -p $PP -k ctmr -d 1 -s 400 400 -xmm -4 4 -ymm -3 7 -tha 4 -dd 10 -hz 19 -o $OUT
+    done
+done
+
+finished
+
+# For the curious and GLK notes to self:
+#
+# The "core" tests have to exercise whatever is of interest to cleanliness
+# tests cnum and mchk (and maybe hlgd), as well as thoughtfulness test for KEC
+# (via clean tkec). None of these involve computationally evaluating the
+# correctness of the computed results relative to the reference
+# implementation, only changes in the result w.r.t. alterations of the source
+# or how it is compiled. So: there are should be none of these commands:
+# points thresh imgJoinDir imgQuantCap imgPixelSlop imgPixelDiff imgDiff
+#
+# Also: the tkec tests are unusual because they rely on the program printing
+# "KEC:" to stdout, which is thwarted by any "> $OUT" redirection, yet that
+# is exactly what is commonly used here to collect any outputs not saved to
+# a file via a -o flag

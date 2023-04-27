@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+##
+## plt and plotr: SciVis-2023 Project 1
+## Copyright (C)  2023 University of Chicago. All rights reserved.
+
+# a little script to run (actually, to turn into, via exec) the right
+# reference executable, rplotr-osx or rplotr-linux, depending on
+# current platform
+
+# https://stackoverflow.com/questions/59895/getting-the-source-directory-of-a-bash-script-from-within
+here="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+if [[ $(uname -s) == "Darwin" ]]; then
+    # this one file contains executables for both x86_64 and arm64 architectures
+    cmd="rplotr-osx"
+else
+    cmd="rplotr-linux"
+fi
+
+exec "$here/$cmd" "$@"

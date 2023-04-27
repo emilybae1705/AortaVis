@@ -1,0 +1,266 @@
+#!/usr/bin/env perl
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+use strict;
+no strict 'refs'; # for retrieving parenthesized expressions
+use warnings;
+use Scalar::Util qw(looks_like_number);
+# unbuffered printing to stdout, https://www.perlmonks.org/?node_id=20590
+$| = 1;
+use IO::Handle;
+
+#     0       1                    2                       3                  4        5                 6
+# sum $tname  $SCIVIS_GRADE_START  $SCIVIS_GRADE_CONTINUE  $SCIVIS_GRADE_END  MaxLines T-$tname-log.txt  T-$tname-sum.txt
+my $Tname=$ARGV[0];
+my $Start=$ARGV[1];
+my $Continue=$ARGV[2];
+my $End=$ARGV[3];
+my $MaxLines=$ARGV[4];
+my $LogFname=$ARGV[5];
+my $SumFname=$ARGV[6];
+
+
+my $SCIVIS=$ENV{'SCIVIS'};
+
+# This script does different things:
+# * It post-processes the output of a T-* grading script, looking for matched
+# pairs of lines containing the $Start and $End patterns, to determine the
+# total possible number of points, and the points earned.
+# * It augments the T-* script output to add an $End matching a $Start if
+# needed (and describing mismatches), and saves that into $LogFname
+# * It generates a summary of tests passed and failed, and a record of
+# points earned, and saves that into $SumFname
+# * It notes which files were declares as "input" to which tests, and keeps
+# around the files for tests that didn't pass, and deletes the rest.
+
+my $rvec = ""; # "vector" of test results, could be used to visualize
+               # (over whole class) space of test passing
+
+my $InputFile = "InputFile"; # HEY sync with ./go
+my $TempFile = "TempFile"; # HEY sync with ./go
+my $SectionMarker = "##########"; # HEY sync with ./go
+
+my $PntsGot = 0; # how many points earned
+my $PntsMax = 0; # max # points possible
+
+my $Section = ""; # description for some section of tests
+
+my $TestInside = 0; # currently between Start and End of some test
+my $TestCmd = ""; # current command being tested
+my $TestPfx = ""; # prefix of current command being tested
+my $TestNum = ""; # just the test number part of $TestPfx (not PID)
+my $TestPntsMax = 0; # total points possible with current test
+my $TestPntsGot = 0; # how many points earned with current test
+my $TestInput = ""; # input files associated with current test
+
+my %Junk; # all files used as input or temp
+my %Keep; # those files we should keep because a test using them didn't pass
+
+# characters to print as per-test progress indication
+my $ProgExtra = "_";   # extra credit (e.g. passed quickly)
+my $ProgPass = ".";    # passed test
+my $ProgContinue = " "; # test still being timed
+my $ProgFail = "!";    # failed test
+my $ProgNegative = "X";    # maybe crashed during test
+my $ProgPartial = ":"; # partially-passed test
+
+open(my $Log, ">", $LogFname)
+    or die "\nCan't open log file $LogFname for writing: $!";
+open(my $Sum, ">", $SumFname)
+    or die "\nCan't open summary file $SumFname for writing: $!";
+
+sub logMissingEnd {
+    print $Log "$0: Problem w/ test ($TestPfx) $TestCmd\n";
+    print $Log "$0: Maybe it crashed or excessively printed output (> $MaxLines lines)?\n";
+    print $Log "$0: Log is missing the terminating \"$End\" line (so inserting it now)\n";
+    print $Log "$TestPfx $End 0 (crashed or too verbose)\n";
+}
+
+sub keepInputs {
+    foreach my $ff (split (/ /, $TestInput)) { $Keep{$ff} = 1; }
+}
+
+my $sumPass = "";
+my $sumPassSect = "";
+my $sumOops = "";
+my $sumOopsSect = "";
+
+sub recordPass {
+    if ($sumPassSect ne $Section) {
+        $sumPassSect = $Section;
+        $sumPass .= "$SectionMarker $Section\n";
+    }
+    $sumPass .= "$TestNum ($TestPntsGot/$TestPntsMax) $TestCmd\n";
+}
+
+{
+    my %Noted; # files already noted as being preserved
+    sub recordOops {
+        if ($sumOopsSect ne $Section) {
+            $sumOopsSect = $Section;
+            $sumOops .= "$SectionMarker $Section\n";
+        }
+        $sumOops .= "$TestNum ($TestPntsGot/$TestPntsMax) $TestCmd\n";
+        if ($TestInput ne "") {
+            foreach my $ff (split (/ /, $TestInput)) {
+                if (! $Noted{$ff}) {
+                    $sumOops .= " grade/$ff preserved for debugging\n";
+                    $Noted{$ff} = 1;
+                }
+            }
+        }
+    }
+}
+
+while (<STDIN>) {
+    # why the \Q and \E :
+    # https://stackoverflow.com/questions/2458490/why-does-my-perl-regex-complain-about-unmatched-in-regex
+    if (m/^\Q$SectionMarker\E (.*)/) {
+        $Section = $1; # may persist over many tests
+    } elsif (m/^\Q$InputFile\E (.*)/) {
+        $TestInput = $1; # may persist over many tests
+        # add these inputs to list of files to (possibly) junk
+        foreach my $ff (split (/ /, $TestInput)) { $Junk{$ff} = 1; }
+    } elsif (m/^\Q$TempFile\E (.*)/) {
+        # always junk these
+        foreach my $ff (split (/ /, $1)) { $Junk{$ff} = 1; }
+    } elsif (m/^(.*) \Q$Start\E \((.*)\) (.*)/) {
+        #        1             2      3
+        # e.g. __010__92321__ ----------Testing (5) wtoi delta-300-cell-lo2hi.txt 0
+        my $newpfx = $1;
+        my $pntsmax = $2;
+        if ($TestInside) {
+            $TestPntsGot = 0;
+            logMissingEnd();
+            recordOops();
+            keepInputs();
+            print $ProgFail;
+            $rvec .= $ProgFail;
+        } else {
+            $TestInside = 1;
+        }
+        $TestCmd = $3;
+        # references to things in $SCIVIS should be stated as that (needed again below)
+        $TestCmd =~ s/$SCIVIS/\$SCIVIS/g;
+        # add "grade/" to input files as they appear in TestCmd, so that
+        # it is easier to copy from log file to re-run tests not passing
+        if ($TestInput ne "") {
+            my $newcmd = "";
+            foreach my $arrg (split (/ /, $TestCmd)) {
+                # not efficient: looking for matches between all args and all inputs
+                foreach my $ff (split (/ /, $TestInput)) {
+                    if ($ff eq $arrg) {
+                        $arrg = "grade/".$ff;
+                    } elsif ("\@$ff" eq $arrg) {
+                        # correctly handle response files
+                        $arrg = "\@grade/".$ff;
+                    }
+                }
+                $newcmd .= "$arrg ";
+            }
+            $newcmd =~ s/\s$//;
+            $TestCmd = $newcmd;
+        }
+        $TestPfx = $newpfx;
+        $TestNum = $TestPfx; $TestNum =~ s/__(\d+)__[[:xdigit:]]+__/__$1__/;
+        if (not looks_like_number($pntsmax)) {
+            # maybe?? helps rare cases of crashes leading to garbled lines
+            $pntsmax=0;
+        }
+        $TestPntsMax = $pntsmax;
+        $PntsMax += $pntsmax;
+    } elsif (m/^\Q$TestPfx\E $Continue .*/) {
+        # this is a timing test, and more iterations are needed
+        print $ProgContinue;
+        # but don't add this to $rvec
+    } elsif (m/^(.*) \Q$End\E (.*) \((.*)\)/) {
+        #        1          2      3
+        my $endpfx = $1;
+        my $pntsgot = $2;
+        my $expl = $3;
+        if (!$TestInside) {
+            print $Log "\n\n$0: WHAT? Saw \"$endpfx $End\" not following a \"$Start\"\n\n\n";
+            $Log->flush();
+        } else {
+            $TestInside = 0;
+            if ($endpfx ne $TestPfx) {
+                print $Log "\n\n$0: WHAT? Saw \"$endpfx $End\" after \"$TestPfx $Start\"\n\n\n";
+                $Log->flush();
+            } else {
+                # this is the normal case
+                if (not looks_like_number($pntsgot)) {
+                    # maybe helps rare cases of crashes leading to garbled lines
+                    $pntsgot=0;
+                }
+                $TestPntsGot = $pntsgot;
+                $PntsGot += $pntsgot;
+                if ($pntsgot < $TestPntsMax) {
+                    # got LESS than full credit
+                    recordOops();
+                    keepInputs();
+                    my $prog = ($pntsgot > 0 ? $ProgPartial
+                                : ($pntsgot < 0 ? $ProgNegative
+                                   : $ProgFail));
+                    print $prog;
+                    $rvec .= $prog
+                } else {
+                    # DID get full credit (or extra credit)
+                    recordPass();
+                    my $pp;
+                    if ($pntsgot > $TestPntsMax) {
+                        $pp = $ProgExtra;
+                    } else {
+                        $pp = $ProgPass;
+                    }
+                    print $pp;
+                    $rvec .= $pp;
+                }
+            }
+        }
+        $TestPfx = "";
+        $TestCmd = "";
+    }
+    # references to things in $SCIVIS should be stated as that
+    s/$SCIVIS/\$SCIVIS/g;
+    print $Log $_;
+    $Log->flush();
+}
+if ($TestInside) {
+    # HEY copy and paste from above
+    logMissingEnd();
+    recordOops();
+    keepInputs();
+    print $ProgFail;
+    $rvec .= $ProgFail;
+}
+# finish line of progress indication characters on stdout
+print "\n";
+
+# remove all input files except those associated with tests that didn't pass
+foreach my $ff (keys %Junk) {
+    if (!exists $Keep{$ff}) {
+        unlink $ff;
+    }
+}
+
+print $Sum "$PntsGot/$PntsMax = points from \"$Tname\" tests\n";
+print $Sum "\n";
+if ($sumOops eq "") {
+    print $Sum "Great job; all tests passed:\n";
+} else {
+    print $Sum "Tests not passing:\n";
+    print $Sum $sumOops;
+    print $Sum "\n";
+    print $Sum "Tests passing:\n";
+}
+print $Sum $sumPass;
+print $Sum "\nSingle-line summary of results:\n$rvec\n";
+
+close($Log) || warn "close $Log failed: $!";
+close($Sum) || warn "close $Sum failed: $!";

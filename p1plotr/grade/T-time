@@ -1,0 +1,56 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-time ]]; then source .T-noop; fi
+
+starting
+
+points 150 5
+# higher thresh here because our main goal is to measure speed,
+# (but we still have to make sure results aren't totally off)
+thresh 1000 ulp
+
+timeout 4
+timing="1 17 20 0.015"
+
+# crazy-high-degree polynomial going through (0,1) and (1,1)
+PP="1 -1"
+PP="$PP $PP"; PP="$PP $PP"; PP="$PP $PP";
+PP="$PP $PP"; PP="$PP $PP"; PP="$PP $PP";
+PP="$PP $PP"; PP="$PP $PP";
+timing $timing # "timing" applies only to following program
+# the (big) output is not actually saved when grading
+plotr psamp -p 1 $PP -mm 0 1 -n 100000 -c node -o bump.txt
+
+# bigger data, convolution-sampled many times
+PARAB="5 10 10" # ensure that parab doesn't change sign;
+# values straddling zero confound ulp-based grading
+../rplotr psamp -p $PARAB -mm -4 4 -n 10000 -c cell -o time-hparab.txt
+input time-hparab.txt
+timing $timing
+# the (big) output is not actually saved when grading
+plotr csamp -i time-hparab.txt -k celie -mm 4 -4 -n 1000000 -o time-hparab-csamp.txt
+
+# plot of parabola that DOES change sign
+PARAB="-3 10 10"
+imgQuantCap 40
+imgPixelSlop 1
+imgPixelDiff 0 1
+imgDiff 0 0.1
+imgJoinDir h
+../rplotr psamp -p $PARAB -mm -4 4 -n 20 -c cell -o time-parab.txt
+input time-parab.txt
+PPARM="-i time-parab.txt -xmm -4.2 4.4 -ymm -40 220 -tha 20 -thc 25 -thp 30 -k ctmr -p $PARAB"
+#          0                  1                    2                    3
+OPTA=("-s 3000 2000" "-s 900 700 -dd 30" "-s 900 700 -hz 80" "-s 900 700 -hz 80 -dd 30")
+for II in 0 1 2 3; do
+    timing $timing
+    plotr plot $PPARM ${OPTA[$II]} -o time-parab-$II.png
+done
+
+finished

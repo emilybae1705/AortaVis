@@ -1,0 +1,28 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+# Despite the similarity in name and location, this is not one of the
+# correctness tests.  To generate output files that support evaluating the
+# thoughtfulness considerations of how changing the meaning of "real" affects
+# results, this is actually run by grade/clean in its "risd" test.
+
+if [[ "$0" == T-risd ]]; then source .T-noop; fi
+
+starting
+
+timeout 4
+
+function out {
+    OUT=$1
+    output $1
+}
+
+section "for seeing how real-is-double affects results"
+out poly-plot.png; plotr plot -p -215940 10799 -180 1 -xmm 59.38 59.42 -ymm 0.23 0.54 -thc 16 -s 600 300 -o $OUT
+
+finished

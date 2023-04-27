@@ -1,0 +1,109 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+
+# You can use this to write your own tests, i.e. ways of running "plotr" so
+# that you can see how your results will compare to the reference
+# implementation, in terms of either results or execution time.  See below
+# for where you put your tests; search for "HERE". Grading of your work will
+# ignore this file, which you can modify as you wish.  You run tests in this
+# file with "./go foo" from within grade/, or with "./grade/go foo" from
+# within your working directory for this assignment.  The file
+# grade/T-foo-sum.txt will then summarize which tests passed and didn't, and
+# grade/T-foo-log.txt will log all the details.
+
+if [[ "$0" == T-foo ]]; then source .T-noop; fi
+
+# need this at start of tests
+starting
+
+# cap on the sum of: number of printed lines allowed to come out your
+# program, and, the number of lines about timing measurement.
+# Is normally set to a low number, to prevent unbounded printfs, but
+# no such cap is important if you're writing your own tests
+maxLines 10000
+
+# use this to declare the start of a group of tests
+section "tests you have written"
+
+# how you declare file(s) that one or more subsequent "plotr" invocations
+# use as input. Doing this tags the file for deletion (at the end of the
+# tests) if the test passes, and preservation if not.
+# input <filename> <filename> ...
+
+# number of points for each subsequent "plotr" invocation
+# there can be an optional second argument to give the granularity of the
+# point value (e.g. from "points 300 5" you could get 0, 5, 10, ... 295, 300
+# points)
+points 40
+
+# how you declare correctness threshold, and its units
+#      <threshold> <unit>
+thresh     40       ulp
+
+# how you declare a timeout (in seconds) at which execution will be stopped
+timeout 10
+
+# how you set up timing a command, if it has timing implemented.
+# Seeing #include "pltTime.h" at the top of plotr_X.c means that "plotr X"
+# should have timing implemented. The "timing" directive applies only to the
+# single subsequent plotr invocation; absent this directive no timing is done.
+# The arguments to "timing" are:
+# verb: verbosity level; 1 is normal
+# runs: minimum # of runs needed for measurement; the timing used will be
+#       the median of this number of runs
+# extra: when the spread of timings is too high, how many more runs are done
+#       to try to decrease the spread of timings
+# spread: when the spread of timings dips below this threshold, we consider
+#       the timing to be done. The spread is the interquartile range
+#       https://en.wikipedia.org/wiki/Interquartile_range , divided by the
+#       median, which is a dimensionless measure of variability.
+#       A higher threshold means it is easier/faster for timing to converge.
+# timing <verb> <runs> <extra> <spread>
+
+
+# when the ratio of your timing divided by reference timing exceeds this
+# threshold, you can start losing points for having code that's too slow.
+timeAllowance 2.5
+
+# all the directives starting with "img" have to do with grading images
+
+# uncomment one for "v"ertical or "h"orizontal joining of three images
+# your results, reference results, difference
+imgJoinDir v
+#imgJoinDir h
+
+# when comparing a student pixel to a reference pixel, include this amount of
+# slop in which reference pixel to look at; saying 1 here means that grading
+# searches (in the reference image) in a little 3x3 window around the student
+# pixel (up to 1 pixel in each direction), looking for the smallest difference
+imgPixelSlop 1
+
+# for normalizing the difference in an individual pixel:
+# <eps>: distances less than this are considered 0
+# <cap>: distances greater than this are considered 1
+# imgPixelDiff <eps> <cap>
+imgPixelDiff 0 1
+
+# for normalizing difference between two whole images, starting with the
+# mean value of the normalized pixel difference, with <eps> and <cap>
+# having analogous role as above
+# imgDiff <eps> <cap>
+imgDiff 0 0.1
+
+# after differencing images, magnitude to map to 0 and 255 in output
+imgQuantCap 5
+
+
+
+
+# Your plotr commands to test go HERE.
+# Calling "plotr" here is actually invoking a shell function called "plotr",
+# set up  in grade/go, which eventually runs grade/plotr, the special version
+# of the executable that links to both your and the reference code, runs both,
+# and compares their results.
+
+
+
+
+# need this at finish of tests
+finished
