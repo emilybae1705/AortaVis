@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+##
+## plt and plotr: SciVis-2023 Project 1
+## Copyright (C)  2023 University of Chicago. All rights reserved.
+
+# a little script to give the name of either the mac or linux
+# reference library, depending on current platform
+
+# https://stackoverflow.com/questions/59895/getting-the-source-directory-of-a-bash-script-from-within
+here="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+if [[ $(uname -s) == "Darwin" ]]; then
+    lib="librplt-osx.a"
+else
+    lib="librplt-linux.a"
+fi
+
+echo $here/$lib

@@ -1,0 +1,145 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-convo ]]; then source .T-noop; fi
+
+starting
+
+# will sample interval from $LO to $HI
+LO="-7"; HI="10";
+NLO=$(echo "$LO + 0.05" | bc -l)  # near lo, just inside
+NHI=$(echo "$HI - 0.05" | bc -l)  # near hi, just inside
+MMA=( "$LO $HI"  "$HI $LO")  # two ways of defining same interval
+MMDA=("lo2hi" "hi2lo") # describing how interval was defined
+
+#idx     0     1      2        3        4       5      6        7
+#supp    1     2      3        4        4       4      5        6  (support)
+#accu    0     1      1        1        2       1      2        3  (accuracy)
+#cont   -1     0      1        2        1       3      3        4  (continuity)
+KNAME=("box" "tent" "bspln2" "bspln3" "ctmr" "spark" "luna"    "celie")
+KTHR0=( "20"  "80"   "90"     "90"     "90"   "100"   "100"    "100") # for 0th derivatives
+KTHR1=( "20"  "80"   "90"     "140"    "200"  "250"   "400"    "2000") # for 1st derivatives
+KTHR2=( "20"  "80"   "90"     "140"    "200"  "250"   "120000" "120000") # for 2nd derivatives
+KTHR3=( "20"  "80"   "90"     "140"    "200"  "250"   "120000" "4000000") # for 3rd derivatives
+
+# these ULP thresholds were found experimentally, with script at bottom,
+# set to be a bit more than twice the ULP distance from up- vs down- rounding
+
+# 1:data  2:k  3:x  4:d
+function ceval {
+    # https://unix.stackexchange.com/questions/60584/how-to-use-a-variable-as-part-of-an-array-name
+    th=KTHR$4[$2]
+    thresh ${!th} ulp
+    plotr ceval -i $1 -k ${KNAME[$2]} -x $3 -d $4
+}
+
+for CENT in cell node; do
+    for J in 0 1; do
+        MM=${MMA[$J]}
+        MD=${MMDA[$J]}
+        for NN in 11 300; do
+            F0=p0-$NN-$CENT-$MD.txt
+            F1=p1-$NN-$CENT-$MD.txt
+            F2=p2-$NN-$CENT-$MD.txt
+            F3=p3-$NN-$CENT-$MD.txt
+            # prevent SCIVIS_ROUND=BRACKET (if so set) from altering behavior
+            export SCIVIS_ROUND_BRACKET_FREEZE=1
+            ../rplotr psamp -mm $MM -n $NN -c $CENT -o $F0 -p -20
+            ../rplotr psamp -mm $MM -n $NN -c $CENT -o $F1 -p -20  10
+            ../rplotr psamp -mm $MM -n $NN -c $CENT -o $F2 -p -20  10  5
+            ../rplotr psamp -mm $MM -n $NN -c $CENT -o $F3 -p -20  10  5  -1
+            unset SCIVIS_ROUND_BRACKET_FREEZE
+            # In Mathematica:
+            # f[x_] := -20 + 10*x + 5*x^2 - x^3
+            # df[x_] = D[f[xx], xx] /. {xx -> x}
+            # ddf[x_] = D[f[xx], {xx, 2}] /. {xx -> x}
+            # dddf[x_] = D[f[xx], {xx, 3}] /. {xx -> x}
+            # Plot[{f[x],df[x],ddf[x],dddf[x]}, {x, -7, 10}, PlotRange -> All]
+            # NSolve[f[x] == 0, x]
+            # {{x -> -2.44326}, {x -> 1.34156}, {x -> 6.1017}}
+            X=3
+            section "ceval in $NN $CENT-centered samples ($MD), at X=$X"
+            points 8
+            input $F0;
+            ceval $F0 0 $X 0 # box
+
+            input $F1;
+            ceval $F1 1 $X 0 # tent
+            ceval $F1 1 $X 1 # tent
+            ceval $F1 2 $X 0 # bspln2
+            ceval $F1 2 $X 1 # bspln2
+            ceval $F1 3 $X 0 # bspln3
+            ceval $F1 3 $X 1 # bspln3
+            ceval $F1 5 $X 0 # spark
+            ceval $F1 5 $X 1 # spark
+
+            input $F2;
+            ceval $F2 4 $X 0 # ctmr
+            ceval $F2 4 $X 1 # ctmr
+            ceval $F2 6 $X 0 # luna
+            ceval $F2 6 $X 1 # luna
+            ceval $F2 6 $X 2 # luna
+
+            input $F3;
+            ceval $F3 7 $X 0 # celie
+            ceval $F3 7 $X 1 # celie
+            ceval $F3 7 $X 2 # celie
+            ceval $F3 7 $X 3 # celie
+
+            section "ceval of $NN $CENT-centered samples ($MD), near data boundary"
+            points 4
+            input $F0;
+            for K in 0 1 2 3 6 7; do
+                ceval $F0 $K $NLO 0
+                ceval $F0 $K $NHI 0
+            done
+            section "ceval of $NN $CENT-centered samples ($MD), far outside data"
+            for K in 0 1 2 3 6 7; do
+                ceval $F0 $K -400000 0
+                ceval $F0 $K 400000 0
+            done
+        done
+    done
+done
+
+finished
+
+# script for finding ULP thresholds for these convo operations
+if false; then
+
+#!/bin/bash
+
+unset SCIVIS_ROUND_BRACKET_FREEZE
+
+export SCIVIS_ROUND=BRACKET
+bash T-convo 2>&1 | grep -v FE_ | grep -v "No result" > diffs.txt
+unset SCIVIS_ROUND
+
+function proc {
+    ii=0
+    while read line; do
+        echo $line
+        if [[ $ii -eq 0 ]]; then
+            LO=$(echo $line | cut -d' ' -f 1)
+            ii=1
+        else
+            HI=$(echo $line | cut -d' ' -f 1)
+            K=$(echo $line | cut -d' ' -f 4)
+            DIST=$(../rplotr fp -dist $LO $HI | cut -d' ' -f 1)
+            ii=0
+            echo "$DIST = dist($LO,$HI) $K"
+        fi
+    done
+}
+
+for K in Box Tent Bspln2 Bspln3 Ctmr Spark Luna Celie; do
+    echo $K
+    grep $K diffs.txt | proc | grep dist | sort -rn > K-$K.txt
+done
+
+fi

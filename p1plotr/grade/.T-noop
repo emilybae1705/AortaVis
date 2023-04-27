@@ -1,0 +1,42 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+
+# When debugging the tests themselves, it can be useful to run a T-* test
+# script stand-alone (via, e.g. "bash T-core"), but that requires that the
+# various functions set up in the "go" driver script, and used within the
+# test script, become no-ops.  That's what this does.  Note the line
+#    if [[ "$0" == T-<tname> ]]; then source .T-noop; fi
+# at the top of every test script.
+
+function starting { :; }
+function points { :; }
+function thresh { :; }
+function temp { :; }
+function input { :; }
+function output { :; } # for T-core
+function section { echo "====== $1"; }
+function finished { :; }
+function maxLines { :; }
+function timeout { :; }
+function timing { :; }
+function timeAllowance { :; }
+function imgJoinDir { :; }
+function imgQuantCap { :; }
+function imgPixelSlop { :; }
+function imgPixelDiff { :; }
+function imgDiff { :; }
+
+# The grade/go framework has ways of recording and responding to errors,
+# but when directly running the many commands in a test set, we want
+# any error to be a show-stopper
+set -o errexit
+
+# By default, make "plotr" invoke the reference executable ../rplotr
+shopt -s expand_aliases
+alias plotr=../rplotr
+
+# You can also modify this file however you want, especially changing
+# the alias above, since this file is ignored by the integrity
+# checking.  In particular, you can use: alias plotr="valgrind ../plotr"
+# and then run "bash T-set" where (T-set is a test sets for this
+# project) to run all the commands in the test set under valgrind.

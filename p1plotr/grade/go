@@ -1,0 +1,466 @@
+#!/usr/bin/env bash
+#
+# grade/go: SciVis-2023 support code (modified per project)
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+# This script runs tests for correctness points
+
+set -o errexit
+set -o nounset
+shopt -s expand_aliases
+
+# disable any coloring that would thwart string comparison
+unset GREP_OPTIONS
+
+# HEY copy-and-paste from ./clean, but then modified to implement -r reuse
+reuse=""
+if [[ $# -gt 0 && "$1" = "-r" ]]; then
+    reuse="yes"
+    shift
+fi
+torunSingle=""
+all="lerp util poly convo plot time"
+allNotTime=${all/time/}
+if [[ $# -eq 0 ]]; then
+    torun="$allNotTime"
+elif [[ "$1" == "all" ]]; then
+    torun="$all"
+elif [[ "$1" == "all-time" ]]; then
+    torun="$allNotTime"
+elif [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    >&2 echo "Usage: "
+    >&2 echo "  $0 [-r] [all|all-time]"
+    >&2 echo "  $0 [-r] <test1> [<test2> [...]]"
+    >&2 echo "  $0 <test>:<N>"
+    #                  1         2         3         4         5         6         7
+    #         123456789012345678901234567890123456789012345678901234567890123456789012345678
+    >&2 echo "With no command-line options, or with giving \"all-time\" as the sole option,"
+    >&2 echo "this runs all tests except the timing tests (which always run slowly because"
+    >&2 echo "of how they gather timing data). To run all test sets, including timing, "
+    >&2 echo "give \"all\" as the sole command-line option."
+    >&2 echo ""
+    >&2 echo "Or, one or more test sets to run can be given by name (incuding the timing"
+    >&2 echo "test set, which is always called \"time\").  Finally, to select a single"
+    >&2 echo "test from a single test set, you can give, e.g. foo:10 to run the 10th"
+    >&2 echo "test in the \"foo\" test set."
+    >&2 echo ""
+    >&2 echo "The \"-r\" option attempts to reuse existing grade/T-<test>-{sum,log}.txt"
+    >&2 echo "files that summarize test results, but note that this script can't know if"
+    >&2 echo "these are out of date with respect to your most recent code changes."
+    >&2 echo ""
+    >&2 echo "Correctness tests for this project are:"
+    >&2 echo "lerp util poly convo plot time"
+    exit 0
+else
+    torun="$*"
+    if [[ $# -eq 1 && $torun == *:* ]]; then
+        tcna=(${torun//:/ }) # Test Colon Number Array
+        if [[ ${#tcna[@]} -eq 2 ]]; then
+            numre='^[0-9]+$'
+            if [[ ${tcna[1]} =~ $numre ]]; then # https://stackoverflow.com/questions/806906/how-do-i-test-if-a-variable-is-a-number-in-bash/806923
+                torunSingle=${tcna[1]}
+                torun=${tcna[0]}
+                if [[ $torun == "all" || $torun == "all-time" ]]; then
+                    >&2 echo "$0: can select single test with :N only on single test set"
+                    exit 1
+                fi
+            else
+                >&2 echo "$0: single test selection :N needs numeric N (not ${tcna[1]})"
+                exit 1
+            fi
+        fi
+    fi
+    for T in $torun; do
+        if [[ ! $T ]]; then
+            # hacky; skip empty strings
+            continue
+        fi
+        legit=""
+        # why was this "for A in foo $all; do"? (why foo?)
+        for A in $all; do  # yea, slow and clumsy
+            if [[ $A == $T ]]; then
+                legit="yea"
+            fi
+        done
+        if [[ -z "$legit" ]]; then
+            >&2 echo "$0: test \"$T\" not recognized. Project 1 tests are:"
+            >&2 echo "lerp util poly convo plot time"
+            exit 1
+        fi
+    done
+    # else all listed tests are legit
+fi
+
+# HEY this too shared with ./clean and ./grade
+function dirnote {
+    echo "$0: NOTE: changing into $DIR to run commands for grading"
+}
+D0=$(pwd)
+# https://stackoverflow.com/questions/59895/getting-the-source-directory-of-a-bash-script-from-within
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+if [[ "$DIR" != "$D0" ]]; then
+    # will dirnote later
+    cd $DIR
+fi
+if [[ "grade" != $(basename $DIR) ]]; then
+    >&2 echo "$0: what? should be running in a \"grade\" subdirectory"
+    >&2 echo "$0: \"grade\" != $(basename $DIR) == basename(pwd)"
+    exit 1
+fi
+
+# $SCIVIS used in some grading T- scripts, and in grade/sum
+if [[ -z ${SCIVIS+x} ]]; then
+    >&2 echo \
+"
+$0: Environment variable \"SCIVIS\" not set. Grading scripts need SCIVIS to be set to
+your checkout of the scivis-2023 repository."
+    exit 1
+fi
+
+# unu isn't used in this "go" script but the T-* tests may need it
+#                  1         2         3         4         5         6         7         8
+command -v unu >/dev/null 2>&1 || { echo >&2 \
+"
+$0: ERROR: need \"unu\" for data manipulation, but it's not in your path. To fix this,
+you will need to add a directory to the beginning of your \$PATH environment variable.
+The directory to add is the sub-directory of
+   \$SCIVIS/tpz = $SCIVIS/tpz
+either \"bin-osx\" or \"bin-linux\" (depending on your platform) that contains \"unu\".";
+echo "0/1 = 0% correctness points because missing unu" > T-sum.txt
+exit 1; }
+
+unu save >/dev/null 2>&1 || { echo >&2 \
+"
+$0: ERROR: Unable to run the unu in your path:
+   $(which unu)
+It may be this unu is the wrong for your platform (OSX vs linux)?";
+echo "0/1 = 0% correctness points because unu is broken" > T-sum.txt
+exit 1; }
+
+# make sure it is a recent enough unu
+# "unu save -f ptext" was added Dec 2019
+unu save | grep ptext >/dev/null 2>&1 || { echo >&2 \
+"
+$0: ERROR: you have a unu in your path:
+   $(which unu)
+but that does not seem to be the unu that was distributed for scivis-2023, in the
+bin-osx and bin-linux subdirectories of
+   \$SCIVIS/tpz = $SCIVIS/tpz
+For doing scivis class work, add the appropriate (for your platform) subdirectory
+of \$SCIVIS/tpz -- either bin-osx or bin-linux -- to your \$PATH, and, add it at the
+start of \$PATH, to ensure that your shell sees the new unu before any other."
+echo "0/1 = 0% correctness points because unu is old" > T-sum.txt
+exit 1; }
+
+# goal is to create this file
+if [[ "$torun" == "$all" ]]; then
+    rm -f T-sum.txt
+fi
+
+# below, all the "-->" annotations (on export commands) name the
+# static variable in plotr.c that is parsed from that environment
+# variable
+
+# cap analysis of printed output to this many lines (exceeding this
+# likely means too many verbose printfs) but also a related number of
+# bytes (sometimes students forget to put \n at end of debugging
+# printfs)
+function setMAXLINES {  # for here
+    unset MAXLINES
+    MAXLINES=$1
+    unset MAXBYTES
+    MAXBYTES=$(( $MAXLINES * 120 ))
+}
+setMAXLINES 60 # POLICY
+
+# set boundaries of test results
+export SCIVIS_GRADE_START=".......Testing" # --> char gradeStart[]
+export SCIVIS_GRADE_CONTINUE="Continuing" # --> char gradeContinue[]
+export SCIVIS_GRADE_END="Points" # --> char gradeEnd[]
+
+# unset things that could change behavior
+# HEY shared with ./clean
+unset SCIVIS_GRADE_NOOP # --> int noop in static int getenvGrade(void)
+unset SCIVIS_VERBOSE # --> extern int pltVerbose
+unset SCIVIS_PRINT_LOG # --> extern int pltPrintLog
+unset SCIVIS_ROUND # --> (common.c) int roundDir, roundDirBracket
+unset SCIVIS_TIMEOUT  # --> (see where set, elsewhere this file)
+unset SCIVIS_TIME_VERBOSE # (same)
+unset SCIVIS_TIME_MEDIAN
+unset SCIVIS_TIME_EXTRA
+unset SCIVIS_TIME_SPREAD
+
+function trymake {
+    echo -n "$0: running \"make grade/plotr\""; if [[ "$(pwd)" != "$D0" ]]; then echo " from $(pwd):"; else echo ":"; fi;
+    rm -f ../make.failed
+    (cd ..; touch make.failed &&
+        make grade/plotr &&
+        rm make.failed) ||:
+    if [[ -f ../make.failed ]]; then
+        >&2 echo ""
+        >&2 echo "$0: ERROR: \"make grade/plotr\" failed => ZERO correctness points"
+        >&2 echo "$0: Fix the above problems in your code."
+        >&2 echo ""
+        echo "0/1 = 0% correctness points because could not compile:" > T-sum.txt
+        echo "" >> T-sum.txt
+        (cd ..; make grade/plotr 2>&1 ) | sed -e s,$SCIVIS,\$SCIVIS, >> T-sum.txt ||:
+        exit 1
+    fi
+    return 0
+}
+
+function plotrBad {
+    local rid=($(./plotr cmpld | grep REAL_IS_DOUBLE))
+    local ndb=($(./plotr cmpld | grep NDEBUG))
+    local grd=($(./plotr cmpld | grep GRADE))
+    if [[ ${#rid[@]} -ne 2 || ${rid[0]} != "REAL_IS_DOUBLE" || ${rid[1]} != "0" ||
+          ${#ndb[@]} -ne 2 || ${ndb[0]} != "NDEBUG" || ${ndb[1]} != "1" ||
+          ${#grd[@]} -ne 2 || ${grd[0]} != "GRADE" || ${grd[1]} != "1" ]]; then
+        return 0; # true
+    else
+        return 1; # false
+    fi
+}
+
+# make sure grade/plotr exists, and was compiled as expected
+trymake
+if plotrBad; then
+    >&2 echo "$0: grade/plotr not compiled as expected; rebuilding"
+    rm -rf plotr plotr.dSYM *.o *.a
+    trymake
+    if plotrBad; then
+        >&2 echo "$0: ERROR: unable to compile a working grade/plotr"
+        >&2 echo "$0: \"plotr cmpld\" output invalid; cannot continue."
+        echo "0/1 = 0% correctness points because unable to build working grade/plotr" > T-sum.txt
+        exit 1;
+    fi
+fi
+
+function starting {
+    echo "tests starting: $tname" # set below
+}
+function finished {
+    echo "tests finished: $tname" # set below
+}
+function temp {
+    echo "TempFile $@" # HEY sync with ./sum
+}
+function input {
+    echo "InputFile $@" # HEY sync with ./sum
+}
+# note that there is no "output" function; that should be used only in
+# T-core, and grade/clean creates the output functions it needs for that;
+# grade/go does not run T-core.
+function section {
+    # try to force newline
+    echo "
+########## $@" # HEY sync with ./sum
+}
+
+function printLogOn {
+    export SCIVIS_PRINT_LOG=1 # --> int pltPrintLog
+}
+function printLogOff {
+    export SCIVIS_PRINT_LOG=0 # --> int pltPrintLog
+}
+
+function points {
+    export SCIVIS_GRADE_POINTS=$1 # --> int gradePoints
+    if [ ! -z ${2+x} ]; then
+        export SCIVIS_GRADE_POINT_STEP=$2 # --> int gradePointStep
+    fi
+}
+points 0
+function thresh {
+    export SCIVIS_GRADE_THRESH=$1 # --> real gradeThresh
+    export SCIVIS_GRADE_THRESH_UNIT=$2 # --> char gradeThreshUnit[]
+}
+thresh 0 ""
+
+function timeout {
+    if [ "0" != $1 ]; then
+        export SCIVIS_TIMEOUT=$1 # --> real Timeout
+    else
+        unset SCIVIS_TIMEOUT
+    fi
+}
+
+# the "timing" declaration applies only to next program invocation
+timeDo=0
+timeVerbose=0
+timeMedian=0
+timeExtra=0
+timeSpread=0
+function timing {
+    timeVerbose=$1
+    timeMedian=$2
+    timeExtra=$3
+    timeSpread=$4
+    timeDo=1
+}
+
+function timeAllowance {
+    export SCIVIS_GRADE_TIME_ALLOWANCE=$1 # --> real gradeTimeAllowance
+}
+
+function imgJoinDir {
+    if [[ $1 == "v" ]]; then
+        export SCIVIS_GRADE_IMAGE_VERT_JOIN=1 # --> int gradeImageVertJoin
+    else
+        export SCIVIS_GRADE_IMAGE_VERT_JOIN=0
+    fi
+}
+function imgQuantCap {
+    export SCIVIS_GRADE_IMAGE_QUANT_CAP=$1 # --> int gradeImageQuantCap
+}
+function imgPixelSlop {
+    export SCIVIS_GRADE_IMAGE_PIXEL_SLOP=$1 # --> int gradeImagePixelSlop
+}
+function imgPixelDiff {
+    export SCIVIS_GRADE_IMAGE_PIXEL_EPS=$1 # --> real gradeImagePixelEps
+    export SCIVIS_GRADE_IMAGE_PIXEL_CAP=$2 # --> real gradeImagePixelCap
+    if [[ $# == 3 ]]; then
+        export SCIVIS_GRADE_IMAGE_VECTOR=$3 # --> int gradeImageVector
+    else
+        # by default, *not* treating multi-channel pixel as vector
+        export SCIVIS_GRADE_IMAGE_VECTOR=0
+    fi
+}
+function imgDiff {
+    export SCIVIS_GRADE_IMAGE_FRAC_EPS=$1 # --> real gradeImageFracEps
+    export SCIVIS_GRADE_IMAGE_FRAC_CAP=$2 # --> real gradeImageFracCap
+}
+function maxLines {
+    # learning MAXLINES is actually handled by grep, in runset
+    # so this is intentionally a no-op; c.f. setMAXLINES
+    :
+}
+
+if command -v stdbuf >/dev/null 2>&1; then
+    # do have GNU's stdbuf
+    STDBUF="stdbuf -i0 -o0 -e0"
+else
+    STDBUF=""
+fi
+
+# plotr is a testing wrapper around ./plotr
+function plotr {
+    export SCIVIS_GRADE_TNUM=$testIdx # --> int gradeTnum
+    if [[ 1 == $timeDo ]]; then
+        export SCIVIS_TIME_VERBOSE=$timeVerbose # --> int timeVerbose
+        export SCIVIS_TIME_MEDIAN=$timeMedian # --> int timeMedian
+        export SCIVIS_TIME_EXTRA=$timeExtra # --> int timeExtra
+        export SCIVIS_TIME_SPREAD=$timeSpread # --> real timeSpread
+    fi
+    # actually run command if we are NOT limiting outselves to a single test,
+    # or (we are so limiting ourselves) and this is the test we care about
+    if [[ -z $torunSingle || $testIdx -eq $torunSingle ]]; then
+        # run command but only keep MAXBYTES bytes and MAXLINES lines of output.
+        # Try to make output be unbuffered by using "stdbuf" if it's available;
+        # see https://www.perkin.org.uk/posts/how-to-fix-stdio-buffering.html
+        #( valgrind ./plotr "$@" 2>&1 ||: )  # for valgrind'ing grading itself
+        ( ./plotr "$@" 2>&1 ||: ) | $STDBUF head -c $MAXBYTES | head -n $MAXLINES
+    fi
+    # increment test number
+    ((testIdx++)) ||:
+    # turn off time
+    timeDo=0
+    unset SCIVIS_TIME_VERBOSE
+    unset SCIVIS_TIME_MEDIAN
+    unset SCIVIS_TIME_EXTRA
+    unset SCIVIS_TIME_SPREAD
+}
+
+# for final all-test summary
+sumout=""
+sumgot=0
+summax=0
+
+# runs one of the designated test sets (corresponding to one of the T-* files)
+function runset {
+    tname=$1
+    # make sure test sets points
+    if ! grep -qE "points [0-9]+" T-$tname; then
+        echo "$0: HEY! T-$tname seems to be missing \"points\" directive; skipping"
+        return
+    fi
+    local redo="yes"
+    if [[ $reuse ]]; then
+        if [[ ! -z $torunSingle ]]; then
+            >&2 echo "$0: ERROR: can't do reuse with single test selection"
+            exit 1
+        fi
+        if [[ -s T-$tname-sum.txt && -s T-$tname-log.txt ]]; then
+            echo "$0: re-using \"$tname\" test results T-$tname-{log,sum}.txt"
+            redo=""
+        else
+            echo "$0: can't re-use missing test results T-$tname-{log,sum}.txt, so will have to re-run \"$tname\" tests."
+        fi
+    fi
+    if [[ $redo ]]; then
+        if [[ -z $torunSingle ]]; then
+            echo -n "$0: running \"$tname\" tests "
+        else
+            echo -n "$0: running single \"$tname\" test #$torunSingle "
+        fi
+        # cleanup any previous results
+        rm -f T-$tname-{log,sum}.txt
+        # learn MAXLINES: not via a bash function because needs to have value
+        # set at time that we invoke "sum"
+        maxll=$(grep "^maxLines " T-$tname | head -1 | cut -d' ' -f 2 ||:)
+        if [[ ! -z $maxll ]]; then # not quoted; whitespace not wanted
+            setMAXLINES $maxll
+        fi
+        # run grading script and process printed output as it goes
+        # passing MAXLINES to "sum" only to be part of an error message
+        testIdx=1
+        source T-$tname 2>&1 | ./sum $tname $SCIVIS_GRADE_START \
+            $SCIVIS_GRADE_CONTINUE $SCIVIS_GRADE_END $MAXLINES \
+            T-$tname-log.txt T-$tname-sum.txt
+        if [[ $(tail -n 1 T-$tname-log.txt) != $(finished) ]]; then
+            echo "$0: WARNING did not finish \"$tname\" tests gracefully!"
+        fi
+        # print test set summary, and accumulate points
+        # in case "$torun" == "$all" (see below)
+    fi
+    line=$(head -1 T-$T-sum.txt)
+    echo "$line"
+    gotmax=($(echo "$line" | cut -d' ' -f 1 | tr '/' ' '))
+    got=${gotmax[0]}
+    max=${gotmax[1]}
+    sumout+=$'\n'
+    sumout+="$line"$'\n'
+    if [[ $got != $max ]]; then
+        sumout+="  T-$T-sum.txt lists tests not passed, T-$T-log.txt gives details"$'\n'
+    fi
+    ((sumgot+=got))||:
+    ((summax+=max))||:
+}
+
+# now run the tests
+if [[ "$DIR" != "$D0" ]]; then
+    dirnote
+fi
+for T in $torun; do
+    runset $T
+done
+
+# if ran all tests, sum results into final report
+if [[ "$torun" == "$all" ]]; then
+    perc=$(echo "scale=2; 100*$sumgot/$summax" | bc)
+    sumsum="$sumgot/$summax = $perc% = correctness points (summing all tests)"
+    echo ""
+    echo "$sumsum"
+    echo "$sumsum" > T-sum.txt
+    echo -n "$sumout" >> T-sum.txt
+else
+    echo "$sumgot/$summax correctness points from tests: $torun"
+    if [[ $# -eq 0 ]]; then
+        echo "(Correctness grading will also run \"grade/go time\" on a CSIL Mac)"
+    fi
+fi

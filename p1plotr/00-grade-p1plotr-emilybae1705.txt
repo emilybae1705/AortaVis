@@ -1,0 +1,23 @@
+emilybae1705-mthumpasery p1plotr grade: 99.42858467/100
+Graded revision: 45
+
+Correctness 99.5711% is > 60%, so grade is a linear interpolation between
+* at correctness=60%: just correctness 99.5711%, and
+* at correctness=100%:
+    70% correctness (99.5711%)
+  + 15% cleanliness (100.0000%)
+  + 15% thoughtfulness (98.1818%)
+  = 99.427040%
+.98927750 = unlerp(60, 99.5711, 100);
+99.42858467% = lerp(.98927750, 99.5711%, 99.427040%)
+
+Files in 00-grade document how these components were determined:
+T-sum.txt (and the files it names) for correctness,
+clean-sum.txt for cleanlines,
+and thought-sum.txt for thoughtfulness.
+
+Requests for reconsideration of a grade should be made within one week
+(of this grade being returned) by posting a private note in the p1plotr
+Edstem category. State your CNetID, the element you think was mis-graded,
+and your explanation.
+

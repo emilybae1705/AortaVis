@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#
+# plt/grade/thought: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+#
+# Note that the (human) grader will modify the contents of this file
+# to reflect their judgement of the thoughtfulness of your work.
+
+GRADER="WHOM?" # whomever is grading
+
+function allitems {
+# The structure of each "item" of thoughtfulness grading is:
+#    item <MaxPoints> "<Description of criterion to grade>" \
+#    <PointsYouGot> "<Comments on points you got>"
+# The <PointsYouGot> and "<Comments on points you got>" parts will
+# be filled in by the grader. <MaxPoints> may be 0 for items that
+# only count for point deductions (rather than contributions)
+
+####### specific to Project 1
+
+item 15 "pltItoW and pltWtoI are based on pltLerp" \
+0 "(not yet graded)"
+
+item 10 "pltPolyEval does not use pow()" \
+0 "(not yet graded)"
+
+item 15 "pltConvoEval does an appropriate number of kernel evaluations" \
+0 "(not yet graded)"
+
+item 5 "pltPlot uses pre-computed xdata, ydata to manage I<->W versions in X,Y" \
+0 "(not yet graded)"
+
+item 5 "pltPlot uses pre-computed xdata, ddata for convolution results and its derivative" \
+0 "(not yet graded)"
+
+item 5 "pltPlot uses pre-computed pdata, qdata for polynomial and its derivative" \
+0 "(not yet graded)"
+
+item 10 "pltPlot uses setrgb() with values from the rgb_e enum to set output pixels (rather than, say, hard-coding RGB values copied from RGBLUT[])" \
+0 "(not yet graded)"
+
+####### general for all projects
+
+item 15 "No copypasta; appropriate use of helper functions or macros" \
+0 "(not yet graded)
+"
+
+item 15 "Code structure and function is adequately explained with comments" \
+0 "(not yet graded)
+"
+
+item 10 "Intelligible variable and helper function naming" \
+0 "(not yet graded)
+"
+
+item 5 "Generally followed directions in comments above students' code blocks" \
+0 "(not yet graded)
+"
+
+item 0 "Avoided repetitions of long reference chains (e.g. ctx->sub->img->data.ss[i])" \
+0 "(not yet graded)
+"
+
+item 0 "Refrained from committing extraneous files" \
+0 "(not yet graded)
+"
+
+item 0 "Other considerations or deductions" \
+0 "(not yet graded)
+"
+# examples of issues to record here:
+# Tried to somehow subvert Student code block structure or grading mechanisms
+# Committed changes to Makefile, .strip.sh, or .integrity.sh
+}
+
+set -o errexit
+set -o nounset
+
+out="thought-sum.txt"; rm -f $out; touch $out
+
+gotSum=0; maxSum=0
+
+function item {
+    max=$1
+    sec=$2
+    got=$3
+    note=$4
+    echo "##############" >> $out
+    echo "$sec" >> $out
+    echo "$got/$max points" >> $out
+    echo "$note" >> $out
+    echo >> $out
+    (( gotSum+=got )) ||:
+    (( maxSum+=max )) ||:
+}
+
+# actually run all the items
+allitems
+
+echo "$gotSum/$maxSum = thoughtfullness points (sum of items below)
+Graded by: $GRADER
+
+$(cat $out)" > $out

@@ -1,0 +1,86 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-util ]]; then source .T-noop; fi
+
+starting
+
+thresh 11 ulp
+points 12
+
+MMeasy=( "-2 3"  "3 -2")  # two ways of defining interval [-2,3]
+MMhard=( "80000 80001"  "80001 80000")
+MMDesc=("lo2hi" "hi2lo") # describing how interval was defined
+for CENT in cell node; do
+    for J in 0 1; do
+        desc=${MMDesc[$J]}
+        MM=${MMeasy[$J]}
+        for NN in 6 300; do
+            FF=delta-$NN-$CENT-$desc.txt
+            section "itow,wtoi on NN=$NN $CENT-centered samples ($desc)"
+            export SCIVIS_ROUND_BRACKET_FREEZE=1
+            ../rplotr delta -mm $MM -n $NN -c $CENT -o $FF
+            unset SCIVIS_ROUND_BRACKET_FREEZE
+            input $FF
+            plotr itow $FF -2000 # way out of bounds
+            plotr itow $FF 0.5
+            plotr itow $FF 32.5
+            plotr wtoi $FF -1.1
+            plotr wtoi $FF 0
+            plotr wtoi $FF 2000 # way out of bounds
+        done
+        MM=${MMhard[$J]}
+        NN=1003
+        FF=delta-$NN-$CENT-$desc.txt
+        section "itow,wtoi on NN=$NN $CENT-centered samples FAR FROM ZERO ($desc)"
+        export SCIVIS_ROUND_BRACKET_FREEZE=1
+        ../rplotr delta -mm $MM -n $NN -c $CENT -o $FF
+        unset SCIVIS_ROUND_BRACKET_FREEZE
+        input $FF
+        plotr itow $FF 0
+        plotr itow $FF 1
+        plotr itow $FF 1002
+        plotr wtoi $FF 0
+        plotr wtoi $FF 80000
+        plotr wtoi $FF 80000.5
+    done
+done
+
+finished
+
+
+# script for finding ULP thresholds for these operations
+if false; then
+
+#!/bin/bash
+
+unset SCIVIS_ROUND_BRACKET_FREEZE
+
+export SCIVIS_ROUND=BRACKET
+bash T-util 2>&1 | grep -v " with round " > diffs.txt # not the lines documenting bracketing-based renaming
+unset SCIVIS_ROUND
+
+function proc {
+    ii=0
+    while read line; do
+        echo $line
+        if [[ $ii -eq 0 ]]; then
+            LO=$(echo $line | cut -d' ' -f 1)
+            ii=1
+        else
+            HI=$(echo $line | cut -d' ' -f 1)
+            DIST=$(../rplotr fp -dist $LO $HI | cut -d' ' -f 1)
+            ii=0
+            echo "$DIST = dist($LO,$HI)"
+        fi
+    done
+}
+
+cat diffs.txt | proc | grep dist | sort -rn
+
+fi

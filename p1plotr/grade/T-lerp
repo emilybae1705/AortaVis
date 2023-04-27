@@ -1,0 +1,79 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-lerp ]]; then source .T-noop; fi
+
+starting
+thresh 40 ulp
+
+function lerper { # for various lerps
+    omin=$1; oMAX=$2; imin=$3; xx=$4; iMAX=$5
+    plotr lerp $omin $oMAX $imin $xx $iMAX
+    plotr lerp $oMAX $omin $imin $xx $iMAX
+    plotr lerp $omin $oMAX $iMAX $xx $imin
+    plotr lerp $oMAX $omin $iMAX $xx $imin
+}
+points 30
+section "basic lerping (various ordering of endpoints)"
+lerper  0  0  0  2 7
+lerper  3 -1  0  2 7
+lerper  3 -1  0 -3 7
+lerper  3 -1  0 10 7
+
+function xerper { # for extreme lerping
+    omin=$1; oMAX=$2; imin=$3; iMAX=$4
+    plotr lerp $omin $oMAX $imin $imin $iMAX
+    plotr lerp $omin $oMAX $imin $iMAX $iMAX
+    plotr lerp $oMAX $omin $imin $imin $iMAX
+    plotr lerp $oMAX $omin $imin $iMAX $iMAX
+    plotr lerp $imin $iMAX $omin $omin $oMAX
+    plotr lerp $imin $iMAX $omin $oMAX $oMAX
+    plotr lerp $iMAX $imin $omin $omin $oMAX
+    plotr lerp $iMAX $imin $omin $oMAX $oMAX
+}
+points 10
+section "lerping between values of very different magnitude"
+xerper  100000 1         1 2
+xerper  10000000 1       1 2
+xerper  1000000000 1     1 2
+xerper  1000000000000 1  1 2
+xerper  3.40282300e+38 1 1 2 # near the biggest finite value
+
+finished
+
+
+# script for finding ulp thresh by bracketing
+if false; then
+
+#!/bin/bash
+
+unset SCIVIS_ROUND_BRACKET_FREEZE
+
+export SCIVIS_ROUND=BRACKET
+bash T-lerp 2>&1 | grep -v " with round " > diffs.txt
+unset SCIVIS_ROUND
+
+function proc {
+    ii=0
+    while read line; do
+        echo $line
+        if [[ $ii -eq 0 ]]; then
+            LO=$(echo $line | cut -d' ' -f 1)
+            ii=1
+        else
+            HI=$(echo $line | cut -d' ' -f 1)
+            DIST=$(../rplotr fp -dist $LO $HI | cut -d' ' -f 1)
+            ii=0
+            echo "$DIST = dist($LO,$HI)"
+        fi
+    done
+}
+
+cat diffs.txt | proc | grep dist | sort -rn
+
+fi

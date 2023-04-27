@@ -1,0 +1,151 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-poly ]]; then source .T-noop; fi
+
+starting
+
+########################### peval peval peval peval peval peval
+
+points 15
+thresh 15 ulp
+section "evaluating various monomials at 1"
+plotr peval -p 0 -x 0.66
+plotr peval -p 1 -x 0.77
+plotr peval -p 2 -x 0.88
+plotr peval -p 0 0 -x 0.66
+plotr peval -p 0 1 -x 0.77
+plotr peval -p 0 2 -x 0.88
+plotr peval -p 0 0 0 -x 0.66
+plotr peval -p 0 0 1 -x 0.77
+plotr peval -p 0 0 2 -x 0.88
+plotr peval -p 0 0 0 0 -x 0.66
+plotr peval -p 0 0 0 1 -x 0.77
+plotr peval -p 0 0 0 2 -x 0.88
+plotr peval -p 0 0 0 0 0 -x 0.66
+plotr peval -p 0 0 0 0 1 -x 0.77
+plotr peval -p 0 0 0 0 2 -x 0.88
+
+# In Mathematica:
+# g[x_] := 2 + (x + 1.5)*(x + 0.5)*(x - 0.5)*(x - 1.5)
+# CForm[N[CoefficientList[g[x], x]]]
+# and then some manual post-processing
+G="2.5625 0 -2.5 0 1"
+# should be hitting roots of g(x)-2 => results should all be 2
+section "evaluating 2+f(x) at roots of f(x)"
+plotr peval -p $G -x -1.5
+plotr peval -p $G -x -0.5
+plotr peval -p $G -x  0.5
+plotr peval -p $G -x  1.5
+
+# In Mathematica:
+# Series[Sin[x] + Cos[x], {x, 0, 18}]
+# f[x_] = Normal[%]
+# CForm[N[CoefficientList[f[x], x]]]
+# and then some manual post-processing
+F=("1" "1" "-0.5" "-0.16666666666666666" "0.041666666666666664" "0.008333333333333333" "-0.001388888888888889" "-0.0001984126984126984" "0.0000248015873015873" "2.7557319223985893e-6" "-2.755731922398589e-7" "-2.505210838544172e-8" "2.08767569878681e-9" "1.6059043836821613e-10" "-1.1470745597729725e-11" "-7.647163731819816e-13" "4.779477332387385e-14" "2.8114572543455206e-15" "-1.5619206968586225e-16")
+Fnum=${#F[@]}
+
+# Note that the coefficient for the x^10, -2.755731922398589e-7, is parsed
+# very differently with FE_UPWARD -3.7620515e-07 vs with FE_DOWNWARD
+# -2.755732e-07 (weird). Unless we are careful, the difference due to rounding
+# direction is not just a function of the computation, but also how values are
+# parsed from the command-line. Therefore, setting the rounding mode happens
+# after parsing the command-line and reading input data.
+
+section "evaluating increasingly accurate Taylor expansions of sin(x)+cos(x) at its minimum"
+x=-2.3561945 # -pi * 3/4
+for E in $(seq 1 $[Fnum-1]); do
+    plotr peval -x $x -p ${F[@]:0:$E}
+done
+
+# polynomial p(x) = 2 + (x-99)*(x-100)*(x-101)
+# evaluate p(x) at various locations near x=99.5
+# CForm[N[CoefficientList[2 + (x - 99)*(x - 100)*(x - 101), x]]]
+section "assessing accuracy (using nested multiplication?) with (x-99)*(x-100)*(x-101)"
+points 30
+thresh 50 ulp
+x=$(echo "99.499 99.501" | unu reshape -s 2 | unu resample -k tent -c node -s 13 | unu save -f ptext)
+plotr peval -p -999898 29999 -300 1 -x $x
+
+########################### psamp psamp psamp psamp psamp psamp psamp
+
+points 25
+thresh 25 ulp
+#        0           1
+MMA=( "-1.5 2.5"  "2.5 -1.5")  # two ways of defining interval [-1.5,2.5]
+MMDA=("lo2hi"     "hi2lo") # describing how interval was defined
+for CENT in cell node; do
+    for J in 0 1; do
+        MM=${MMA[$J]}
+        MD=${MMDA[$J]}
+        for NN in 7 8 42 900 901; do
+            section "psamp on $NN $CENT-centered samples ($MD)"
+            # won't actually write anything to output when grading
+            plotr psamp -p 4 1 -mm $MM -n $NN -c $CENT -o poly-$CENT-$MD-$NN-A.txt
+        done
+    done
+done
+
+# one last psamp to expose itow functionality"
+#       0       1
+MMA=("-4 4"   "4 -4")
+MMDA=("lo2hi" "hi2lo") # describing how interval was defined
+for J in 0 1; do
+    MM=${MMA[$J]}
+    MD=${MMDA[$J]}
+    for CENT in cell node; do
+        for NN in 10000 10001; do
+            section "psamp of f(x)=5+x with $NN $CENT-centered samples ($MD)"
+            # won't actually write anything to output when grading
+            plotr psamp -p 4.5 1 -mm $MM -n $NN -c $CENT -o poly-$CENT-$MD-$NN-B.txt
+        done
+    done
+done
+
+
+finished
+
+# script for finding ULP thresholds for these operations
+if false; then
+
+#!/bin/bash
+
+unset SCIVIS_ROUND_BRACKET_FREEZE
+
+export SCIVIS_ROUND=BRACKET
+bash T-poly 2>&1 | grep -v " with round " | # not the line documenting rounding
+    grep -v " of evaluations" | # not the lines giving stats of vector of evals
+    grep -v ": rename" > diffs.txt # not the lines documenting bracketing-based renaming
+unset SCIVIS_ROUND
+
+function proc {
+    ii=0
+    while read line; do
+        echo $line
+        if [[ $ii -eq 0 ]]; then
+            LO=$(echo $line | cut -d' ' -f 1)
+            ii=1
+        else
+            HI=$(echo $line | cut -d' ' -f 1)
+            DIST=$(../rplotr fp -dist $LO $HI | cut -d' ' -f 1)
+            ii=0
+            echo "$DIST = dist($LO,$HI)"
+        fi
+    done
+}
+
+cat diffs.txt | proc | grep dist | sort -rn
+
+for T in $(ls -1 *.txt | grep dn- | sed -e 's/dn-//g'); do
+    echo $T
+    ../rplotr fp -dist @dn-$T @up-$T | sort -rn | head -3
+done
+
+
+fi

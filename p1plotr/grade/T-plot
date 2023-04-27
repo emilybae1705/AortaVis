@@ -1,0 +1,125 @@
+# plt and plotr: SciVis-2023 Project 1
+# Copyright (C)  2023 University of Chicago. All rights reserved.
+#
+# This is only for students and instructors in the 2023 CMSC 23710/33710
+# ("SciVis") class, for use in that class. It is not licensed for open-source
+# or any other kind of re-distribution. Do not allow this file to be copied
+# or downloaded by anyone outside the 2023 SciVis class.
+
+if [[ "$0" == T-plot ]]; then source .T-noop; fi
+
+starting
+
+timeout 4
+
+points 9
+
+SZ="350 450"
+imgJoinDir h
+
+imgQuantCap 40
+imgPixelSlop 1
+imgPixelDiff 0 1
+imgDiff 0 0.1
+
+section "nothingness"
+plotr plot -s $SZ -xmm -2 2 -ymm -2 2 -tha 0 -o blank.png
+
+
+section "just the X,Y axes"
+plotr plot -s $SZ -xmm -2 2 -ymm -2  2 -tha 20 -o axesA.png
+plotr plot -s $SZ -xmm -3 2 -ymm -2  2 -tha 21 -o axesB.png
+plotr plot -s $SZ -xmm -3 2 -ymm -4  2 -tha 22 -o axesC.png
+plotr plot -s $SZ -xmm -3 2 -ymm -4 -2 -tha 23 -o axesD.png
+
+
+section "just some simple polynomials"
+imgDiff 0 0.08
+plotr plot -s $SZ -xmm -2 2 -ymm -2  2 -p  0.5          -thp 28 -o poly0.png
+plotr plot -s $SZ -xmm -2 2 -ymm -2  2 -p  0.25  1      -thp 29 -o poly1.png
+plotr plot -s $SZ -xmm -2 2 -ymm -2  2 -p  -1    0  1   -thp 30 -o poly2.png
+plotr plot -s $SZ -xmm -2 2 -ymm -2  2 -p -0.25 -2  0 1 -thp 31 -o poly3.png
+
+
+section "for apcoth debugging"
+OPTS="-s 300 300 -xmm -3 3 -apcoth true -thp 50"
+# 0 degree incline
+plotr plot $OPTS -ymm  -3  3 -o apcoth0a.png -p 0  0
+plotr plot $OPTS -ymm  -3  3 -o apcoth0b.png -p 0  0
+# 30 degree incline
+plotr plot $OPTS -ymm  -3  3 -o apcoth1a.png -p 0  0.5773502691896258
+plotr plot $OPTS -ymm  -3  3 -o apcoth1b.png -p 0 -0.5773502691896258
+plotr plot $OPTS -ymm -30 30 -o apcoth1c.png -p 0   5.773502691896258
+plotr plot $OPTS -ymm -30 30 -o apcoth1d.png -p 0  -5.773502691896258
+# 45 degree incline
+plotr plot $OPTS -ymm  -3  3 -o apcoth2a.png -p 0   1
+plotr plot $OPTS -ymm  -3  3 -o apcoth2b.png -p 0  -1
+plotr plot $OPTS -ymm -30 30 -o apcoth2c.png -p 0  10
+plotr plot $OPTS -ymm -30 30 -o apcoth2d.png -p 0 -10
+# 60 degree incline
+plotr plot $OPTS -ymm  -3  3 -o apcoth3a.png -p 0  1.7320508075688772
+plotr plot $OPTS -ymm  -3  3 -o apcoth3b.png -p 0 -1.7320508075688772
+plotr plot $OPTS -ymm -30 30 -o apcoth3c.png -p 0  17.320508075688772
+plotr plot $OPTS -ymm -30 30 -o apcoth3d.png -p 0 -17.320508075688772
+
+SZ="650 250"
+imgJoinDir v
+imgDiff 0 0.06
+
+PPA=("-3 1 1"                  "-30 10 10"            "-1 -7 0 1"               "-10 -70 0 10")
+PDA=("normal vertical scaling" "10x vertical scaling" "normal vertical scaling" "10x vertical scaling")
+VVA=("01"                      "10"                   "01"                      "10")
+YYA=("-9 19"                   "-90 190"              "-16 16"                  "-160 160")
+CVA=("parab"                   "parab"                "cubic"                   "cubic")
+KKA=("ctmr"                    "ctmr"                 "celie"                   "celie")
+for II in 0 1 2 3; do
+    PD=${PDA[$II]}
+    PP=${PPA[$II]}
+    YY=${YYA[$II]}
+    VV=${VVA[$II]}
+    CV=${CVA[$II]}
+    KK=${KKA[$II]}
+    for CC in cell node; do
+        section "$CV sampling + (should be exact) reconstruction ($PD, $CC-centered)"
+        for NN in 6 7; do
+            FF="$CV-v$VV-n$NN-$CC"
+            ../rplotr psamp -p $PP -mm -4 4 -n $NN -c $CC -o $FF.txt
+            input $FF.txt
+            OPTS="-i $FF.txt -s $SZ -xmm -4.2 4.33 -ymm $YY -tha 10 -thc 12 -thp 15 -k $KK"
+            # z1/z0: with/without zero-crossing tickmarks
+            # d1/d0: with/without dots at data points
+            # p1/p0: with/without plotting exact polynomial
+            plotr plot $OPTS                      -o $FF-z0-dd0-p0.png
+            plotr plot $OPTS               -p $PP -o $FF-z0-dd0-p1.png
+            plotr plot $OPTS               -p $PP -o $FF-z0-dd0-p1-ap.png -apcoth true
+            plotr plot $OPTS        -dd 22        -o $FF-z0-dd1-p0.png
+            plotr plot $OPTS        -dd 23 -p $PP -o $FF-z0-dd1-p1.png
+            plotr plot $OPTS -hz 82               -o $FF-z1-dd0-p0.png
+            plotr plot $OPTS -hz 84        -p $PP -o $FF-z1-dd0-p1.png
+            plotr plot $OPTS -hz 86 -dd 24        -o $FF-z1-dd1-p0.png
+            plotr plot $OPTS -hz 88 -dd 25 -p $PP -o $FF-z1-dd1-p1.png
+        done
+    done
+done
+
+
+../rplotr delta -mm -6 6 -n 13 -c node -o delta.txt
+input delta.txt
+XMM="-7 7.1"
+ISZ="1000 250"
+PPARM="-i delta.txt -xmm $XMM -s $ISZ -thc 14 -dd 21"
+#     0    1    2     3     4      5    6    7
+KKA=(zero box tent bspln2 bspln3 spark luna celie)
+KN=${#KKA[@]}
+# deriv   0          1       2       3        4        5        6         7
+YMA=("-0.3 1.1" "-1.7 1.7" "-4 4" "-14 14" "-40 40" "-80 80" "-90 90" "-140 140")
+YN=${#YMA[@]}
+for (( KI=0; KI<$KN; KI++ )); do
+    KK=${KKA[$KI]}
+    for (( DD=0; DD<$YN; DD++ )); do
+        YY=${YMA[$DD]}
+        plotr plot $PPARM -k $KK -d $DD -ymm $YY   -o delta-d${DD}-k${KI}-$KK.png
+    done
+done
+
+finished
